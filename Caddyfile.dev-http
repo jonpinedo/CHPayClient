@@ -1,0 +1,81 @@
+# Caddyfile.dev-http - Desarrollo con HTTP y Bearer Token
+# Para usar: docker compose -f docker-compose.yml exec caddy caddy reload --config /caddy-config/Caddyfile.dev-http
+
+{
+    # Desactivar redirección automática a HTTPS
+    auto_https off
+}
+
+http://{$DOMAIN:localhost}:80 {
+    log {
+        output stdout
+        format console
+    }
+
+    encode gzip zstd
+
+    # ============================================================
+    # Admin Django - protegido por login Django
+    # ============================================================
+    handle /admin* {
+        reverse_proxy django:8001 {
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+            header_up X-Real-IP {remote_host}
+        }
+    }
+
+    # ============================================================
+    # Static Django
+    # ============================================================
+    handle_path /static/* {
+        root * /var/www/static
+        file_server
+    }
+
+    # ============================================================
+    # API FastAPI - todos los endpoints con Bearer Token
+    # ============================================================
+    handle /api/* {
+        reverse_proxy fastapi:8000 {
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+            header_up X-Real-IP {remote_host}
+        }
+    }
+    
+    handle /docs* {
+        reverse_proxy fastapi:8000 {
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+            header_up X-Real-IP {remote_host}
+        }
+    }
+    
+    handle /openapi.json {
+        reverse_proxy fastapi:8000 {
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+            header_up X-Real-IP {remote_host}
+        }
+    }
+
+    # ============================================================
+    # Fallback para SPA frontend
+    # ============================================================
+    handle {
+        root * /var/www/html
+        try_files {path} /index.html
+        file_server
+    }
+
+    # ============================================================
+    # Headers de seguridad
+    # ============================================================
+    header {
+        X-Frame-Options "SAMEORIGIN"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        -Server
+    }
+}

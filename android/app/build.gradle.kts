@@ -42,11 +42,3 @@ android {
 flutter {
     source = "../.."
 }
-
-dependencies {
-    // Kotlin standard library
-    implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.9.0")
-    
-    // AndroidX Security para EncryptedSharedPreferences (futuro)
-    implementation("androidx.security:security-crypto:1.1.0-alpha06")
-}

@@ -1,28 +1,17 @@
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'dart:io';
-import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:flutter/services.dart';
-import 'device_service.dart';
 
 class APIService {
-  // Method Channel para peticiones mTLS
-  static const platform = MethodChannel('com.chpayclient/certificate');
-  
   // Flags de configuración
   static const bool isDebugMode = true; // Cambiar a false en producción
   
-  // URL base según modo debug y plataforma
+  // URL base según modo debug
   static String get baseUrl {
     if (isDebugMode) {
-      // En desarrollo con HTTPS/mTLS, conectar directamente a WSL2
-      // IP de WSL2: 172.26.28.154 (verificar con: wsl hostname -I)
-      if (!kIsWeb && Platform.isAndroid) {
-        return 'https://172.26.28.154'; // IP directa de WSL2 para mTLS
-      }
-      return 'https://172.26.28.154'; // IP directa de WSL2
+      // En desarrollo, usar IP de Windows que redirige a WSL2
+      return 'http://192.168.1.146';
     }
-    return 'https://192.168.1.146'; // HTTPS para producción
+    return 'http://192.168.1.146'; // Producción
   }
   
   static const String token = 'xlUBl5-niHn9JZxuRa5uY639I7Qs8eLZi4Wt_Zt4klw'; // Terminal Admin Principal
@@ -34,89 +23,19 @@ class APIService {
     return token;
   }
 
-  // Ignorar errores SSL en desarrollo (certificado self-signed)
-  static void configurarSSL() {
-    HttpOverrides.global = _DevHttpOverrides();
-  }
-
   static final Map<String, String> headers = {
     'Authorization': 'Bearer $token',
     'Content-Type': 'application/json',
   };
 
-  /// Hacer petición HTTP con o sin mTLS según disponibilidad de certificado
-  static Future<Map<String, dynamic>> _makeRequest({
-    required String url,
-    required String method,
-    Map<String, String>? headers,
-    String? body,
-  }) async {
-    try {
-      // Verificar si hay certificado instalado
-      final hasCert = await DeviceService.hasCertificateInstalled();
-      
-      if (hasCert && !kIsWeb && Platform.isAndroid) {
-        // Usar petición nativa con mTLS
-        print('🔐 [APIService] Usando mTLS nativo para: $method $url');
-        
-        final response = await platform.invokeMethod('httpRequest', {
-          'url': url,
-          'method': method,
-          'headers': headers ?? {},
-          'body': body,
-        });
-        
-        return {
-          'statusCode': response['statusCode'],
-          'body': response['body'],
-          'headers': response['headers'],
-        };
-      } else {
-        // Usar HTTP estándar sin mTLS
-        print('📡 [APIService] Usando HTTP estándar para: $method $url');
-        
-        http.Response httpResponse;
-        if (method == 'GET') {
-          httpResponse = await http.get(
-            Uri.parse(url),
-            headers: headers,
-          );
-        } else if (method == 'POST') {
-          httpResponse = await http.post(
-            Uri.parse(url),
-            headers: headers,
-            body: body,
-          );
-        } else if (method == 'PUT') {
-          httpResponse = await http.put(
-            Uri.parse(url),
-            headers: headers,
-            body: body,
-          );
-        } else {
-          throw Exception('Método HTTP no soportado: $method');
-        }
-        
-        return {
-          'statusCode': httpResponse.statusCode,
-          'body': httpResponse.body,
-          'headers': httpResponse.headers,
-        };
-      }
-    } catch (e) {
-      print('❌ [APIService] Error en _makeRequest: $e');
-      rethrow;
-    }
-  }
 
   // Obtener información del dispositivo (roles)
   static Future<Map<String, dynamic>> obtenerInfoDispositivo() async {
     try {
       print('🔍 Intentando conectar a: $baseUrl/api/auth/me');
       
-      final response = await _makeRequest(
-        url: '$baseUrl/api/auth/me',
-        method: 'GET',
+      final response = await http.get(
+        Uri.parse('$baseUrl/api/auth/me'),
         headers: headers,
       ).timeout(
         const Duration(seconds: 10),
@@ -125,15 +44,12 @@ class APIService {
         },
       );
       
-      final statusCode = response['statusCode'] as int;
-      final body = response['body'] as String;
-      
-      print('✅ Respuesta recibida: $statusCode');
-      if (statusCode == 200) {
-        return jsonDecode(body);
+      print('✅ Respuesta recibida: ${response.statusCode}');
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
       } else {
-        print('❌ Error HTTP: $statusCode - $body');
-        throw Exception('Error: $statusCode');
+        print('❌ Error HTTP: ${response.statusCode} - ${response.body}');
+        throw Exception('Error: ${response.statusCode}');
       }
     } catch (e) {
       print('❌ Excepción al obtener info dispositivo: $e');
@@ -325,17 +241,5 @@ class APIService {
     } catch (e) {
       return {'error': e.toString()};
     }
-  }
-}
-
-// Clase para ignorar errores SSL en desarrollo
-class _DevHttpOverrides extends HttpOverrides {
-  @override
-  HttpClient createHttpClient(SecurityContext? context) {
-    final client = super.createHttpClient(context);
-    client.badCertificateCallback = (X509Certificate cert, String host, int port) => true;
-    client.connectionTimeout = const Duration(seconds: 10);
-    client.idleTimeout = const Duration(seconds: 15);
-    return client;
   }
 }

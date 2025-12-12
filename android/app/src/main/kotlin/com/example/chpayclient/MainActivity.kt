@@ -1,22 +1,11 @@
 package com.example.chpayclient
 
-import android.os.Bundle
 import io.flutter.embedding.android.FlutterActivity
-import io.flutter.embedding.engine.FlutterEngine
-import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
-    
-    companion object {
-        private const val CHANNEL = "com.chpayclient/certificate"
-        private const val TAG = "MainActivity"
-    }
-    
-    private lateinit var certificateManager: CertificateManager
-    private lateinit var httpClientManager: HttpClientManager
-    
-    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
-        super.configureFlutterEngine(flutterEngine)
+    // Aplicación Flutter básica sin Method Channel
+}
+
         
         // Inicializar gestores de certificados
         certificateManager = CertificateManager(this)
