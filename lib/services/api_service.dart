@@ -8,23 +8,45 @@ class APIService {
   // URL base según modo debug
   static String get baseUrl {
     if (isDebugMode) {
-      // En desarrollo, usar IP de Windows que redirige a WSL2
-      return 'http://192.168.1.146';
+      // En desarrollo, usar IP de Windows (necesita portproxy para puerto 8000)
+      return 'http://192.168.1.146:8000';
     }
     return 'http://192.168.1.146'; // Producción
   }
   
-  static const String token = 'xlUBl5-niHn9JZxuRa5uY639I7Qs8eLZi4Wt_Zt4klw'; // Terminal Admin Principal
-
-  // Obtener token de autorización
-  static Future<String> getToken() async {
-    // Por ahora retorna el token hardcodeado
-    // En el futuro, podría obtenerlo de SharedPreferences
-    return token;
+  // Bearer de sesión actual (se obtiene en cada inicio de app)
+  static String? _sessionBearer;
+  
+  // Token hardcodeado para admin (solo para testing)
+  static const String _adminToken = 'xlUBl5-niHn9JZxuRa5uY639I7Qs8eLZi4Wt_Zt4klw';
+  
+  /// Establecer bearer de sesión
+  static void setSessionBearer(String bearer) {
+    _sessionBearer = bearer;
+    print('🔐 Bearer de sesión actualizado');
   }
-
-  static final Map<String, String> headers = {
-    'Authorization': 'Bearer $token',
+  
+  /// Limpiar bearer de sesión
+  static void clearSessionBearer() {
+    _sessionBearer = null;
+    print('🔐 Bearer de sesión limpiado');
+  }
+  
+  /// Obtener headers con autorización actual
+  static Map<String, String> get headers {
+    // Usar bearer de sesión si está disponible, sino usar token admin
+    final auth = _sessionBearer != null 
+      ? 'Bearer $_sessionBearer'
+      : 'Bearer $_adminToken';
+    
+    return {
+      'Authorization': auth,
+      'Content-Type': 'application/json',
+    };
+  }
+  
+  /// Headers solo para endpoints públicos (sin autenticación)
+  static final Map<String, String> publicHeaders = {
     'Content-Type': 'application/json',
   };
 
