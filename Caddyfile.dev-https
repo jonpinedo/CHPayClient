@@ -1,0 +1,121 @@
+# Caddyfile.dev-https - Desarrollo con HTTPS autofirmado y mTLS
+# Para usar: docker compose -f docker-compose.yml exec caddy caddy reload --config /caddy-config/Caddyfile.dev-https
+
+{
+    # Generar certificados autofirmados automáticamente para desarrollo
+    auto_https internal
+    
+    # PKI interna para certificados de dispositivos
+    pki {
+        ca internal {
+            name "CHPay Internal CA"
+        }
+    }
+}
+
+https://{$DOMAIN:localhost}:443 {
+    log {
+        output stdout
+        format console
+    }
+
+    encode gzip zstd
+
+    # ============================================================
+    # Admin Django - sin mTLS (protegido por login Django)
+    # ============================================================
+    handle /admin* {
+        reverse_proxy django:8001 {
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+            header_up X-Real-IP {remote_host}
+        }
+    }
+
+    # ============================================================
+    # Static Django
+    # ============================================================
+    handle_path /static/* {
+        root * /var/www/static
+        file_server
+    }
+
+    # ============================================================
+    # Endpoints de registro - sin mTLS requerido
+    # ============================================================
+    @register_endpoints {
+        path /api/auth/register-device
+        path /api/auth/device-status/*
+        path /api/auth/download-certificate/*
+        path /docs*
+        path /openapi.json
+    }
+
+    handle @register_endpoints {
+        reverse_proxy fastapi:8000 {
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+            header_up X-Real-IP {remote_host}
+        }
+    }
+    
+    # ============================================================
+    # Endpoints que requieren mTLS - /api/auth/me y operaciones
+    # ============================================================
+    @mtls_endpoints {
+        path /api/auth/me
+        path /api/pagos/*
+        path /api/recargas/*
+        path /api/tarjetas/*
+        path /api/admin/*
+    }
+
+    handle @mtls_endpoints {
+        reverse_proxy fastapi:8000 {
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+            header_up X-Real-IP {remote_host}
+            
+            # Pasar información del certificado de cliente
+            header_up X-Client-Cert-CN {http.request.tls.client.subject.common_name}
+            header_up X-Client-Cert-Serial {http.request.tls.client.serial_number}
+            header_up X-Client-Cert-Verified {http.request.tls.client.verified}
+        }
+    }
+
+    # ============================================================
+    # Fallback para SPA frontend
+    # ============================================================
+    handle {
+        root * /var/www/html
+        try_files {path} /index.html
+        file_server
+    }
+
+    # ============================================================
+    # Headers de seguridad
+    # ============================================================
+    header {
+        # HSTS deshabilitado en desarrollo para facilitar testing
+        # X-Hsts-Max-Age "31536000"
+        X-Frame-Options "SAMEORIGIN"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        -Server
+    }
+
+    # ============================================================
+    # Manejo de errores mTLS
+    # ============================================================
+    handle_errors 403 {
+        header Content-Type application/json
+        respond `{"detail": "Certificado de cliente requerido o inválido"}` 403
+    }
+}
+
+# ============================================================
+# HTTP redirect (opcional, para redirigir HTTP -> HTTPS)
+# ============================================================
+http://{$DOMAIN:localhost}:80 {
+    redir https://{host}{uri} permanent
+}
