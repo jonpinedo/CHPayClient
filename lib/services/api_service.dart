@@ -1,24 +1,23 @@
-import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'ziti_service.dart';
 
 class APIService {
-  // Flags de configuración
-  static const bool isDebugMode = true; // Cambiar a false en producción
+  // All traffic goes through the Ziti overlay to chpay-api.private
+  static const String baseUrl = 'http://chpay-api.private';
   
-  // URL base según modo debug
-  static String get baseUrl {
-    if (isDebugMode) {
-      // En desarrollo, usar IP de Windows (necesita portproxy para puerto 8000)
-      return 'http://192.168.1.146:8000';
-    }
-    return 'http://192.168.1.146'; // Producción
-  }
+  // Debug mode flag for UI elements
+  static bool isDebugMode = false;
   
   // Bearer de sesión actual (se obtiene en cada inicio de app)
   static String? _sessionBearer;
   
   // Token hardcodeado para admin (solo para testing)
   static const String _adminToken = 'xlUBl5-niHn9JZxuRa5uY639I7Qs8eLZi4Wt_Zt4klw';
+  
+  /// Obtener token actual (para DeviceService, etc.)
+  static Future<String> getToken() async {
+    return _sessionBearer ?? _adminToken;
+  }
   
   /// Establecer bearer de sesión
   static void setSessionBearer(String bearer) {
@@ -34,7 +33,6 @@ class APIService {
   
   /// Obtener headers con autorización actual
   static Map<String, String> get headers {
-    // Usar bearer de sesión si está disponible, sino usar token admin
     final auth = _sessionBearer != null 
       ? 'Bearer $_sessionBearer'
       : 'Bearer $_adminToken';
@@ -56,14 +54,9 @@ class APIService {
     try {
       print('🔍 Intentando conectar a: $baseUrl/api/auth/me');
       
-      final response = await http.get(
-        Uri.parse('$baseUrl/api/auth/me'),
+      final response = await ZitiService.get(
+        '$baseUrl/api/auth/me',
         headers: headers,
-      ).timeout(
-        const Duration(seconds: 10),
-        onTimeout: () {
-          throw Exception('Timeout: No se pudo conectar al servidor');
-        },
       );
       
       print('✅ Respuesta recibida: ${response.statusCode}');
@@ -82,8 +75,8 @@ class APIService {
   // Validar tarjeta
   static Future<Map<String, dynamic>> validarTarjeta(String uid) async {
     try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/api/tarjetas/validar'),
+      final response = await ZitiService.post(
+        '$baseUrl/api/tarjetas/validar',
         headers: headers,
         body: jsonEncode({'uid': uid}),
       );
@@ -105,8 +98,8 @@ class APIService {
     String descripcion,
   ) async {
     try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/api/pagos/'),
+      final response = await ZitiService.post(
+        '$baseUrl/api/pagos/',
         headers: headers,
         body: jsonEncode({
           'uid': uid,
@@ -125,15 +118,15 @@ class APIService {
     }
   }
 
-  // Hacer recarga (igual que pago pero endpoint diferente)
+  // Hacer recarga
   static Future<Map<String, dynamic>> hacerRecarga(
     String uid,
     double monto,
     String descripcion,
   ) async {
     try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/api/recargas/'),
+      final response = await ZitiService.post(
+        '$baseUrl/api/recargas/',
         headers: headers,
         body: jsonEncode({
           'uid': uid,
@@ -155,8 +148,8 @@ class APIService {
   // Consultar historial
   static Future<Map<String, dynamic>> obtenerHistorial(String uid) async {
     try {
-      final response = await http.get(
-        Uri.parse('$baseUrl/api/recargas/historial/$uid'),
+      final response = await ZitiService.get(
+        '$baseUrl/api/recargas/historial/$uid',
         headers: headers,
       );
       
@@ -173,8 +166,8 @@ class APIService {
   // Listar todos los socios (requiere rol ADMIN)
   static Future<List<Map<String, dynamic>>> listarSocios() async {
     try {
-      final response = await http.get(
-        Uri.parse('$baseUrl/api/admin/socios'),
+      final response = await ZitiService.get(
+        '$baseUrl/api/admin/socios',
         headers: headers,
       );
       
@@ -191,7 +184,6 @@ class APIService {
   }
 
   // Crear socio (requiere rol ADMIN)
-  // El número de socio ya NO se envía, es generado por el backend
   static Future<Map<String, dynamic>> crearSocio({
     required String nombre,
     String? email,
@@ -199,8 +191,8 @@ class APIService {
     String saldoInicial = '0.00',
   }) async {
     try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/api/admin/socios'),
+      final response = await ZitiService.post(
+        '$baseUrl/api/admin/socios',
         headers: headers,
         body: jsonEncode({
           'nombre': nombre,
@@ -227,8 +219,8 @@ class APIService {
     String? descripcion,
   }) async {
     try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/api/admin/tarjetas'),
+      final response = await ZitiService.post(
+        '$baseUrl/api/admin/tarjetas',
         headers: headers,
         body: jsonEncode({
           'numero_socio': numeroSocio,
@@ -250,8 +242,8 @@ class APIService {
   // Consultar saldo
   static Future<Map<String, dynamic>> consultarSaldo(String uid) async {
     try {
-      final response = await http.get(
-        Uri.parse('$baseUrl/api/tarjetas/saldo/$uid'),
+      final response = await ZitiService.get(
+        '$baseUrl/api/tarjetas/saldo/$uid',
         headers: headers,
       );
       

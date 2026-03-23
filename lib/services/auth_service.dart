@@ -1,9 +1,21 @@
-import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:uuid/uuid.dart';
 import 'dart:convert';
 import 'api_service.dart';
+import 'ziti_service.dart';
+
+/// Exception with HTTP status code to distinguish auth errors from network errors.
+class AuthException implements Exception {
+  final String message;
+  final int statusCode;
+  AuthException(this.message, this.statusCode);
+
+  bool get isAuthError => statusCode == 401 || statusCode == 403;
+
+  @override
+  String toString() => message;
+}
 
 class AuthService {
   static final _deviceInfo = DeviceInfoPlugin();
@@ -137,14 +149,14 @@ class AuthService {
       print('   IMEI/UUID: $deviceId');
       print('   Nombre: $deviceName');
       
-      final response = await http.post(
-        Uri.parse('${APIService.baseUrl}/api/auth/register-request'),
+      final response = await ZitiService.post(
+        '${APIService.baseUrl}/api/auth/register-request',
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'imei': deviceId,
           'nombre': deviceName,
         }),
-      ).timeout(const Duration(seconds: 10));
+      );
       
       if (response.statusCode == 200) {
         await setDeviceName(deviceName);
@@ -152,8 +164,9 @@ class AuthService {
         print('✅ Solicitud de registro enviada exitosamente');
         return jsonDecode(response.body);
       } else {
-        print('❌ Error en solicitud de registro: ${response.statusCode}');
-        throw Exception('Error: ${response.statusCode}');
+        print('❌ Error en solicitud de registro: ${response.statusCode} - ${response.body}');
+        String detail = _extractErrorDetail(response.body);
+        throw Exception('Error ${response.statusCode}: $detail');
       }
     } catch (e) {
       print('❌ Excepción al solicitar registro: $e');
@@ -173,14 +186,14 @@ class AuthService {
       
       print('🔐 Solicitando autorización del dispositivo...');
       
-      final response = await http.post(
-        Uri.parse('${APIService.baseUrl}/api/auth/authorize'),
+      final response = await ZitiService.post(
+        '${APIService.baseUrl}/api/auth/authorize',
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'imei': deviceId,
           'nombre': deviceName,
         }),
-      ).timeout(const Duration(seconds: 10));
+      );
       
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -191,8 +204,9 @@ class AuthService {
         print('✅ Dispositivo autorizado. Token permanente guardado.');
         return data;
       } else {
-        print('❌ Error en autorización: ${response.statusCode}');
-        throw Exception('Error: ${response.statusCode}');
+        print('❌ Error en autorización: ${response.statusCode} - ${response.body}');
+        String detail = _extractErrorDetail(response.body);
+        throw Exception('Error ${response.statusCode}: $detail');
       }
     } catch (e) {
       print('❌ Excepción en autorización: $e');
@@ -216,14 +230,14 @@ class AuthService {
           throw Exception('Token permanente no disponible');
         }
         
-        final response = await http.post(
-          Uri.parse('${APIService.baseUrl}/api/auth/session'),
+        final response = await ZitiService.post(
+          '${APIService.baseUrl}/api/auth/session',
           headers: {'Content-Type': 'application/json'},
           body: jsonEncode({
             'imei': deviceId,
             'token': permanentToken,
           }),
-        ).timeout(const Duration(seconds: 10));
+        );
         
         if (response.statusCode == 200) {
           final data = jsonDecode(response.body);
@@ -240,8 +254,9 @@ class AuthService {
           await Future.delayed(Duration(milliseconds: 500 * attempt));
           continue;
         } else {
-          print('❌ Error en sesión: ${response.statusCode}');
-          throw Exception('Error: ${response.statusCode}');
+          print('❌ Error en sesión: ${response.statusCode} - ${response.body}');
+          String detail = _extractErrorDetail(response.body);
+          throw AuthException('Error ${response.statusCode}: $detail', response.statusCode);
         }
       } catch (e) {
         if (attempt < maxRetries) {
@@ -268,6 +283,19 @@ class AuthService {
     }
   }
   
+  /// Extract error detail from response body (JSON "detail" field or raw body)
+  static String _extractErrorDetail(String body) {
+    try {
+      final data = jsonDecode(body);
+      if (data is Map && data.containsKey('detail')) {
+        return data['detail'].toString();
+      }
+      return body;
+    } catch (_) {
+      return body.isNotEmpty ? body : 'Sin detalles';
+    }
+  }
+
   /// Clear credentials on logout
   static Future<void> clearCredentials() async {
     try {
