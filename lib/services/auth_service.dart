@@ -296,6 +296,11 @@ class AuthService {
     }
   }
 
+  /// Get the current session bearer token (in-memory only).
+  static Future<String?> getCurrentBearer() async {
+    return await APIService.getToken();
+  }
+
   /// Clear credentials on logout
   static Future<void> clearCredentials() async {
     try {

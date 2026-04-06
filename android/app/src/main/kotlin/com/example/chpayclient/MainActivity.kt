@@ -11,6 +11,7 @@ class MainActivity : FlutterActivity() {
     companion object {
         private const val ZITI_CHANNEL = "com.chpayclient/ziti"
         private const val CERT_CHANNEL = "com.chpayclient/certificate"
+        private const val UPDATE_CHANNEL = "com.chpayclient/update"
     }
 
     private lateinit var zitiManager: ZitiManager
@@ -112,6 +113,33 @@ class MainActivity : FlutterActivity() {
                         result.success(certificateManager.getCertificateInfo())
                     }
 
+                    else -> result.notImplemented()
+                }
+            }
+
+        // --- Update MethodChannel ---
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, UPDATE_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "downloadApk" -> {
+                        val url    = call.argument<String>("url")
+                        val bearer = call.argument<String>("bearer")
+                        if (url == null || bearer == null) {
+                            result.error("INVALID_ARG", "url y bearer son requeridos", null)
+                            return@setMethodCallHandler
+                        }
+                        val cacheDir = java.io.File(applicationContext.cacheDir, "apk_downloads")
+                        scope.launch {
+                            try {
+                                val path = zitiManager.downloadApk(url, bearer, cacheDir) { progress ->
+                                    android.util.Log.d("Update", "Descarga: $progress%")
+                                }
+                                result.success(mapOf("path" to path))
+                            } catch (e: Exception) {
+                                result.error("DOWNLOAD_FAILED", e.message, null)
+                            }
+                        }
+                    }
                     else -> result.notImplemented()
                 }
             }

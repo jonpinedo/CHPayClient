@@ -101,15 +101,24 @@ class ZitiManager(private val context: Context) {
 
             zitiContext = contexts.first()
             Log.i(TAG, "ZitiContext ready — identity: ${zitiContext?.name()}")
-            Log.i(TAG, "ZitiContext status: ${zitiContext?.getStatus()}")
+            val initStatus = zitiContext?.getStatus()
+            Log.i(TAG, "ZitiContext status: ${statusName(initStatus)}")
+            if (initStatus is ZitiContext.Status.Unavailable) {
+                Log.e(TAG, "Unavailable reason: ${initStatus.ex}", initStatus.ex)
+            }
             Log.i(TAG, "ZitiContext controller: ${zitiContext?.controller()}")
 
             // Check for fatal statuses that require re-enrollment
-            val initialStatus = zitiContext?.getStatus()?.toString() ?: ""
-            if (initialStatus.contains("NotAuthorized", ignoreCase = true) ||
-                initialStatus.contains("Disabled", ignoreCase = true)) {
-                Log.e(TAG, "Identity rejected by controller (status=$initialStatus) — re-enrollment needed")
-                return@withContext false
+            when (zitiContext?.getStatus()) {
+                is ZitiContext.Status.NotAuthorized -> {
+                    Log.e(TAG, "Identity not authorized — re-enrollment needed")
+                    return@withContext false
+                }
+                is ZitiContext.Status.Disabled -> {
+                    Log.e(TAG, "Identity disabled — re-enrollment needed")
+                    return@withContext false
+                }
+                else -> {} // continue
             }
 
             // Wait for services to be available (edge router connection)
@@ -117,13 +126,18 @@ class ZitiManager(private val context: Context) {
             val maxRetries = 30
             while (retries < maxRetries) {
                 val status = zitiContext?.getStatus()
-                val statusStr = status?.toString() ?: ""
 
                 // Abort early if identity becomes rejected
-                if (statusStr.contains("NotAuthorized", ignoreCase = true) ||
-                    statusStr.contains("Disabled", ignoreCase = true)) {
-                    Log.e(TAG, "Identity rejected during wait (status=$statusStr) — re-enrollment needed")
-                    return@withContext false
+                when (status) {
+                    is ZitiContext.Status.NotAuthorized -> {
+                        Log.e(TAG, "Identity rejected during wait — re-enrollment needed")
+                        return@withContext false
+                    }
+                    is ZitiContext.Status.Disabled -> {
+                        Log.e(TAG, "Identity disabled during wait — re-enrollment needed")
+                        return@withContext false
+                    }
+                    else -> {} // continue waiting
                 }
 
                 val resolved = Ziti.getDNSResolver().resolve("chpay-api.private")
@@ -133,14 +147,17 @@ class ZitiManager(private val context: Context) {
                 }
                 retries++
                 if (retries % 5 == 0) {
-                    Log.i(TAG, "Waiting for services... attempt $retries/$maxRetries (status=$status)")
+                    Log.i(TAG, "Waiting for services... attempt $retries/$maxRetries (status=${statusName(status)})")
+                    if (status is ZitiContext.Status.Unavailable) {
+                        Log.e(TAG, "Unavailable reason: ${status.ex}", status.ex)
+                    }
                 } else {
-                    Log.d(TAG, "Waiting for services... attempt $retries/$maxRetries (status=$status)")
+                    Log.d(TAG, "Waiting for services... attempt $retries/$maxRetries (status=${statusName(status)})")
                 }
                 delay(1000)
             }
             if (retries == maxRetries) {
-                Log.w(TAG, "Services not yet available after $maxRetries seconds")
+                Log.w(TAG, "Services not yet available after $maxRetries seconds (final status=${statusName(zitiContext?.getStatus())})")
                 return@withContext false
             }
 
@@ -149,6 +166,19 @@ class ZitiManager(private val context: Context) {
         } catch (e: Exception) {
             Log.e(TAG, "Initialization failed: ${e.message}", e)
             false
+        }
+    }
+
+    /** Return a human-readable status name even in R8-minified release builds */
+    private fun statusName(status: ZitiContext.Status?): String {
+        if (status == null) return "null"
+        return when (status) {
+            is ZitiContext.Status.Active -> "Active"
+            is ZitiContext.Status.Loading -> "Loading"
+            is ZitiContext.Status.Disabled -> "Disabled"
+            is ZitiContext.Status.NotAuthorized -> "NotAuthorized"
+            is ZitiContext.Status.Unavailable -> "Unavailable"
+            else -> status::class.java.simpleName.ifEmpty { status.toString() }
         }
     }
 
@@ -267,5 +297,56 @@ class ZitiManager(private val context: Context) {
             Log.e(TAG, "Failed to delete identity: ${e.message}", e)
             false
         }
+    }
+
+    /**
+     * Descarga el APK más reciente desde el servidor vía Ziti al directorio de caché.
+     * Llama al callback [onProgress] con el porcentaje (0-100) a medida que avanza.
+     * Devuelve la ruta absoluta del fichero descargado, o lanza una excepción.
+     */
+    suspend fun downloadApk(
+        url: String,
+        bearer: String,
+        destDir: java.io.File,
+        onProgress: (Int) -> Unit
+    ): String = withContext(Dispatchers.IO) {
+        val client = httpClient
+            ?: throw IllegalStateException("Ziti no inicializado")
+
+        val request = Request.Builder()
+            .url(url)
+            .addHeader("Authorization", "Bearer $bearer")
+            .get()
+            .build()
+
+        val response = client.newCall(request).execute()
+        if (!response.isSuccessful) {
+            throw IOException("Error descargando APK: HTTP ${response.code}")
+        }
+
+        val body = response.body ?: throw IOException("Respuesta vacía del servidor")
+        val totalBytes = body.contentLength()
+
+        destDir.mkdirs()
+        val destFile = java.io.File(destDir, "chpay_update.apk")
+        if (destFile.exists()) destFile.delete()
+
+        var downloadedBytes = 0L
+        body.byteStream().use { input ->
+            destFile.outputStream().use { output ->
+                val buffer = ByteArray(8 * 1024)
+                var read: Int
+                while (input.read(buffer).also { read = it } != -1) {
+                    output.write(buffer, 0, read)
+                    downloadedBytes += read
+                    if (totalBytes > 0) {
+                        onProgress((downloadedBytes * 100 / totalBytes).toInt())
+                    }
+                }
+            }
+        }
+
+        Log.i(TAG, "APK descargado: ${destFile.absolutePath} (${downloadedBytes / 1024} KB)")
+        destFile.absolutePath
     }
 }

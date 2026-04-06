@@ -30,6 +30,10 @@ android {
     buildTypes {
         release {
             signingConfig = signingConfigs.getByName("debug")
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
     }
 
@@ -50,6 +54,9 @@ dependencies {
     implementation("net.java.dev.jna:jna:5.13.0@aar")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+    // JJWT impl + gson must be present at runtime for ziti-android ServiceLoader discovery
+    runtimeOnly("io.jsonwebtoken:jjwt-impl:0.11.5")
+    runtimeOnly("io.jsonwebtoken:jjwt-gson:0.11.5")
 }
 
 flutter {

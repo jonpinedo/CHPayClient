@@ -7,6 +7,7 @@ import 'screens/device_registration_screen.dart';
 import 'screens/ziti_enrollment_screen.dart';
 import 'services/auth_service.dart';
 import 'services/ziti_service.dart';
+import 'services/update_service.dart';
 
 void main() async {
   // Inicializar NFC para capturar intents al arrancar
@@ -24,6 +25,7 @@ class ChPayApp extends StatefulWidget {
 
 class _ChPayAppState extends State<ChPayApp> {
   late Future<Widget> _homeScreenFuture;
+  UpdateInfo? _pendingUpdate;
 
   @override
   void initState() {
@@ -69,14 +71,29 @@ class _ChPayAppState extends State<ChPayApp> {
       final isAuthorized = await AuthService.isAuthorized();
       
       if (!isAuthorized) {
-        print('❌ Dispositivo no autorizado. Mostrando pantalla de registro.');
-        return DeviceRegistrationScreen(
-          onRegistrationComplete: () {
-            setState(() {
-              _homeScreenFuture = Future.value(_buildHomeScreen());
-            });
-          },
-        );
+        // Try to recover credentials silently before showing registration screen.
+        // This handles the case where clearCredentials() was called (e.g. after a
+        // 401 during server reconfig) but the device is still approved on the server.
+        print('⚠️ Credenciales locales ausentes. Intentando recuperar...');
+        bool recovered = false;
+        try {
+          await AuthService.authorizeDevice();
+          print('✅ Credenciales recuperadas del servidor.');
+          recovered = true;
+        } catch (e) {
+          print('ℹ️ No se pudo recuperar credenciales: $e');
+        }
+
+        if (!recovered) {
+          print('❌ Dispositivo no autorizado. Mostrando pantalla de registro.');
+          return DeviceRegistrationScreen(
+            onRegistrationComplete: () {
+              setState(() {
+                _homeScreenFuture = Future.value(_buildHomeScreen());
+              });
+            },
+          );
+        }
       }
       
       // Crear sesión para obtener bearer
@@ -115,6 +132,12 @@ class _ChPayAppState extends State<ChPayApp> {
         );
       }
       
+      // ─── Check de actualización (no bloqueante en arranque) ─────────
+      final update = await UpdateService.checkForUpdate();
+      if (update != null) {
+        setState(() => _pendingUpdate = update);
+      }
+
       print('✅ Dispositivo autorizado. Mostrando HomeScreen.');
       return _buildHomeScreen();
     } catch (e) {
@@ -155,7 +178,7 @@ class _ChPayAppState extends State<ChPayApp> {
   Widget _buildHomeScreen() {
     return BlocProvider(
       create: (context) => TarjetaBloc(),
-      child: const HomeScreen(),
+      child: HomeScreen(pendingUpdate: _pendingUpdate),
     );
   }
 

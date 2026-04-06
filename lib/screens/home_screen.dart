@@ -2,14 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:nfc_manager/nfc_manager.dart';
 import 'package:nfc_manager/nfc_manager_android.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import '../services/api_service.dart';
 import '../services/nfc_service.dart';
+import '../services/update_service.dart';
+import '../services/auth_service.dart';
 import 'pago_screen.dart';
 import 'recarga_screen.dart';
 import 'admin_screen.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({Key? key}) : super(key: key);
+  final UpdateInfo? pendingUpdate;
+  const HomeScreen({Key? key, this.pendingUpdate}) : super(key: key);
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -31,13 +35,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   
   // Control de sesión NFC persistente
   bool _nfcSessionActiva = false;
+  bool _dismissedUpdate = false;
+  String _appVersion = '';
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _cargarInfoDispositivo();
+    _cargarVersion();
     _iniciarSesionNfcPersistente();
+    if (widget.pendingUpdate?.mandatory == true) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _showMandatoryUpdateDialog(widget.pendingUpdate!);
+      });
+    }
   }
 
   @override
@@ -56,6 +68,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       // Cuando la app va al fondo, detener sesión NFC
       _detenerSesionNfcPersistente();
     }
+  }
+
+  Future<void> _cargarVersion() async {
+    final info = await PackageInfo.fromPlatform();
+    setState(() => _appVersion = 'v${info.version}');
   }
 
   Future<void> _iniciarSesionNfcPersistente() async {
@@ -328,6 +345,60 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
+  void _showMandatoryUpdateDialog(UpdateInfo update) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AlertDialog(
+        title: const Text('Actualización requerida'),
+        content: Text(
+          'La versión ${update.versionName} es obligatoria.\n\n${update.changelog}',
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () async {
+              final bearer = await AuthService.getCurrentBearer();
+              if (bearer != null) {
+                await UpdateService.downloadAndInstall(bearer);
+              }
+            },
+            child: const Text('Instalar ahora'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildUpdateBanner(UpdateInfo update) {
+    if (update.mandatory) {
+      return const SizedBox.shrink();
+    }
+    return MaterialBanner(
+      padding: const EdgeInsets.all(12),
+      content: Text(
+        'Nueva versión ${update.versionName} disponible',
+        style: const TextStyle(fontWeight: FontWeight.w600),
+      ),
+      leading: const Icon(Icons.system_update, color: Colors.blue),
+      backgroundColor: Colors.blue.shade50,
+      actions: [
+        TextButton(
+          onPressed: () async {
+            final bearer = await AuthService.getCurrentBearer();
+            if (bearer != null) {
+              await UpdateService.downloadAndInstall(bearer);
+            }
+          },
+          child: const Text('INSTALAR'),
+        ),
+        TextButton(
+          onPressed: () => setState(() => _dismissedUpdate = true),
+          child: const Text('AHORA NO'),
+        ),
+      ],
+    );
+  }
+
   void _irAPago() {
     Navigator.push(
       context,
@@ -371,6 +442,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return Scaffold(
       appBar: AppBar(
         title: const Text('CHPay - TPV NFC'),
+        actions: [
+          if (_appVersion.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: Center(
+                child: Text(
+                  _appVersion,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Colors.white.withValues(alpha: 0.6),
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
       body: SingleChildScrollView(
         child: Padding(
@@ -378,6 +464,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              // Banner de actualización disponible
+              if (widget.pendingUpdate != null && !_dismissedUpdate)
+                _buildUpdateBanner(widget.pendingUpdate!),
               // Banner de modo debug
               if (APIService.isDebugMode)
                 Container(
