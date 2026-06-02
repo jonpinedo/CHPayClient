@@ -1,4 +1,15 @@
-# CHPay Client - Lector NFC
+# CHPay Client
+
+Clientes de terminal de pago CHPay.
+
+## Proyectos
+
+- **`/` (raíz)** — Cliente Android Flutter con NFC y OpenZiti SDK
+- **`/desktop`** — Cliente Windows Go/Fyne, binario portátil, usa Ziti Desktop Edge
+
+---
+
+## Android — Lector NFC
 
 Aplicación Flutter para lectura de etiquetas NFC en Android.
 
@@ -89,3 +100,20 @@ adb devices
 - Verificar hardware NFC en teléfono
 - Activar NFC en Ajustes > Conexiones > NFC
 - Revisar permisos en AndroidManifest.xml
+---
+
+## Desktop (Windows)
+
+Cliente Go/Fyne portable para Windows. Requiere Ziti Desktop Edge instalado y enrolado.
+
+### Compilar
+```bat
+cd desktop
+build.bat
+```
+
+### Publicar actualizaci�n
+```powershell
+$env:CHPAY_PUBLISH_KEY = "tu-api-key"
+.\publish_desktop.ps1 -Mandatory -Changelog "Descripci�n"
+```

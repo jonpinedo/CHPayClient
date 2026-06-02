@@ -1,0 +1,12 @@
+# Compiled binaries
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Build artifacts
+chpay_v*.exe
+
+# OS
+.DS_Store
+Thumbs.db
