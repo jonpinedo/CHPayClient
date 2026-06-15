@@ -2,8 +2,8 @@
 setlocal
 
 :: ── Versión de la aplicación ──────────────────────────────────────────────────
-set VERSION=1.0.3
-set VERSION_CODE=4
+set VERSION=1.0.4
+set VERSION_CODE=5
 
 echo [CHPay] Building CHPay Desktop v%VERSION% (code: %VERSION_CODE%)
 echo.
@@ -17,7 +17,7 @@ set CGO_ENABLED=1
 cd /d "%~dp0"
 echo [CHPay] Compilando chpay.exe...
 set LDFLAGS=-H=windowsgui -X main.AppVersion=%VERSION% -X main.AppVersionCode=%VERSION_CODE%
-go build -ldflags "%LDFLAGS%" -o chpay.exe .
+go build -buildvcs=false -ldflags "%LDFLAGS%" -o chpay.exe .
 if errorlevel 1 (
     echo [ERROR] La compilacion fallo.
     exit /b 1

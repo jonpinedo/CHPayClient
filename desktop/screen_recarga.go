@@ -51,6 +51,43 @@ func (s *RecargaScreen) OnShow() {
 	} else if s.historial != nil {
 		s.historial.Clear()
 	}
+	s.setupKeyboard()
+}
+
+func (s *RecargaScreen) setupKeyboard() {
+	s.win.Canvas().SetOnTypedRune(func(r rune) {
+		if s.nfcWaiting || s.win.Canvas().Focused() != nil {
+			return
+		}
+		switch r {
+		case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
+			s.pressNum(string(r))
+		case '.', ',':
+			s.pressNum(".")
+		}
+	})
+	s.win.Canvas().SetOnTypedKey(func(ev *fyne.KeyEvent) {
+		if s.nfcWaiting {
+			return
+		}
+		switch ev.Name {
+		case fyne.KeyBackspace:
+			if s.win.Canvas().Focused() == nil {
+				s.pressBackspace()
+			}
+		case fyne.KeyDelete:
+			s.pressClear()
+		case fyne.KeyReturn, fyne.KeyEnter:
+			if s.win.Canvas().Focused() == nil {
+				s.processRecarga()
+			}
+		}
+	})
+}
+
+func (s *RecargaScreen) teardownKeyboard() {
+	s.win.Canvas().SetOnTypedRune(nil)
+	s.win.Canvas().SetOnTypedKey(nil)
 }
 
 func (s *RecargaScreen) build() fyne.CanvasObject {
@@ -121,7 +158,7 @@ func (s *RecargaScreen) build() fyne.CanvasObject {
 		container.NewCenter(nfcIcon),
 		container.NewCenter(nfcHint),
 		container.NewCenter(s.nfcAmountText),
-		container.NewCenter(s.nfcStatusLbl),
+		s.nfcStatusLbl,
 		container.NewCenter(s.nfcCancelBtn),
 	)
 
@@ -253,6 +290,7 @@ func (s *RecargaScreen) finish() {
 	s.nfcWaiting = false
 	s.montoStr = ""
 	s.showCalculator()
+	s.teardownKeyboard()
 	s.onBack()
 }
 

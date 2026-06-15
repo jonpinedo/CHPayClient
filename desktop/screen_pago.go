@@ -15,6 +15,13 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
+type pagoOpSnapshot struct {
+	displayOps      string
+	total           float64
+	multiplyPending bool
+	multiplyVal     float64
+}
+
 type PagoScreen struct {
 	win         fyne.Window
 	getCardInfo func() map[string]interface{}
@@ -27,6 +34,7 @@ type PagoScreen struct {
 	total           float64
 	multiplyPending bool
 	multiplyVal     float64
+	opStack         []pagoOpSnapshot // undo history (one entry per committed "+")
 
 	// NFC payment state
 	nfcWaiting      bool
@@ -58,6 +66,47 @@ func (s *PagoScreen) OnShow() {
 	} else if s.historial != nil {
 		s.historial.Clear()
 	}
+	s.setupKeyboard()
+}
+
+func (s *PagoScreen) setupKeyboard() {
+	s.win.Canvas().SetOnTypedRune(func(r rune) {
+		if s.nfcWaiting || s.win.Canvas().Focused() != nil {
+			return
+		}
+		switch r {
+		case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
+			s.pressNum(string(r))
+		case '.', ',':
+			s.pressNum(".")
+		case '+':
+			s.pressAdd()
+		case '*':
+			s.pressMultiply()
+		}
+	})
+	s.win.Canvas().SetOnTypedKey(func(ev *fyne.KeyEvent) {
+		if s.nfcWaiting {
+			return
+		}
+		switch ev.Name {
+		case fyne.KeyBackspace:
+			if s.win.Canvas().Focused() == nil {
+				s.pressBackspace()
+			}
+		case fyne.KeyDelete:
+			s.pressClear()
+		case fyne.KeyReturn, fyne.KeyEnter:
+			if s.win.Canvas().Focused() == nil {
+				s.processPago()
+			}
+		}
+	})
+}
+
+func (s *PagoScreen) teardownKeyboard() {
+	s.win.Canvas().SetOnTypedRune(nil)
+	s.win.Canvas().SetOnTypedKey(nil)
 }
 
 func (s *PagoScreen) build() fyne.CanvasObject {
@@ -123,7 +172,7 @@ func (s *PagoScreen) build() fyne.CanvasObject {
 		container.NewCenter(nfcIcon),
 		container.NewCenter(nfcHint),
 		nfcAmountRow,
-		container.NewCenter(s.nfcStatusLbl),
+		s.nfcStatusLbl,
 		container.NewCenter(s.nfcCancelBtn),
 	)
 
@@ -166,6 +215,13 @@ func (s *PagoScreen) pressAdd() {
 	if s.numActual == "" {
 		return
 	}
+	// Snapshot state before this "+" (including any pending ×) for undo.
+	s.opStack = append(s.opStack, pagoOpSnapshot{
+		displayOps:      s.displayOps,
+		total:           s.total,
+		multiplyPending: s.multiplyPending,
+		multiplyVal:     s.multiplyVal,
+	})
 	val, _ := strconv.ParseFloat(s.numActual, 64)
 	if s.multiplyPending {
 		val = s.multiplyVal * val
@@ -184,6 +240,13 @@ func (s *PagoScreen) pressMultiply() {
 	if s.numActual == "" {
 		return
 	}
+	// Snapshot state before this "×" so backspace can undo it.
+	s.opStack = append(s.opStack, pagoOpSnapshot{
+		displayOps:      s.displayOps,
+		total:           s.total,
+		multiplyPending: false,
+		multiplyVal:     0,
+	})
 	s.multiplyVal, _ = strconv.ParseFloat(s.numActual, 64)
 	s.displayOps += s.numActual + " × "
 	s.numActual = ""
@@ -194,8 +257,33 @@ func (s *PagoScreen) pressMultiply() {
 func (s *PagoScreen) pressBackspace() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if len(s.numActual) > 0 {
-		s.numActual = s.numActual[:len(s.numActual)-1]
+	popStack := func() {
+		if len(s.opStack) > 0 {
+			top := s.opStack[len(s.opStack)-1]
+			s.opStack = s.opStack[:len(s.opStack)-1]
+			s.displayOps = top.displayOps
+			s.total = top.total
+			s.multiplyPending = top.multiplyPending
+			s.multiplyVal = top.multiplyVal
+		} else {
+			s.displayOps = ""
+			s.total = 0
+			s.multiplyPending = false
+			s.multiplyVal = 0
+		}
+	}
+	if s.multiplyPending {
+		// Cancel the entire × group (numActual + the pending ×), restore to before ×.
+		s.numActual = ""
+		s.multiplyPending = false
+		s.multiplyVal = 0
+		popStack()
+	} else if s.numActual != "" {
+		// Just discard the number being typed; keep committed state.
+		s.numActual = ""
+	} else {
+		// Nothing in progress: undo the last committed "+".
+		popStack()
 	}
 	s.refreshDisplay()
 }
@@ -208,6 +296,7 @@ func (s *PagoScreen) pressClear() {
 	s.total = 0
 	s.multiplyPending = false
 	s.multiplyVal = 0
+	s.opStack = nil
 	s.refreshDisplay()
 }
 
@@ -311,6 +400,7 @@ func (s *PagoScreen) cancelNFC() {
 	s.nfcWaiting = false
 	s.pressClear()
 	s.showCalculator()
+	s.teardownKeyboard()
 	s.onBack()
 }
 
@@ -318,6 +408,7 @@ func (s *PagoScreen) resetToCalculator() {
 	s.nfcWaiting = false
 	s.pressClear()
 	s.showCalculator()
+	s.teardownKeyboard()
 	s.onBack()
 }
 
