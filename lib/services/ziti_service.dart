@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/services.dart';
 
 /// Dart wrapper around the Kotlin ZitiManager via MethodChannel.
@@ -111,6 +112,9 @@ class ZitiResponse {
   });
 
   bool get isSuccess => statusCode >= 200 && statusCode < 300;
+
+  /// Raw bytes of the body (using latin1 to preserve byte values).
+  Uint8List get bodyBytes => Uint8List.fromList(latin1.encode(body));
 
   Map<String, dynamic> jsonBody() => jsonDecode(body);
 }
