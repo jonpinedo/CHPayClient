@@ -1,8 +1,9 @@
 // screen_pago.go — Payment calculator with NFC confirmation.
-// Left: calculator (ops display + numpad). Right: historial.
+// Left: calculator (ops display + numpad + historial). Right: price list items.
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"strconv"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
 )
 
@@ -51,6 +53,11 @@ type PagoScreen struct {
 	nfcStatusLbl  *widget.Label
 	nfcCancelBtn  *widget.Button
 	historial     *HistorialWidget
+
+	// Price list panel
+	listaSelect   *widget.Select
+	itemsPanel    *fyne.Container
+	selectedLista int
 }
 
 func newPagoScreen(win fyne.Window, getCardInfo func() map[string]interface{}, onBack func()) *PagoScreen {
@@ -176,25 +183,160 @@ func (s *PagoScreen) build() fyne.CanvasObject {
 		container.NewCenter(s.nfcCancelBtn),
 	)
 
-	// ── Left panel: calculator or NFC wait ────────────────────────────────────
+	// ── Left panel: calculator or NFC wait + historial below ──────────────────
 	leftContent := container.NewStack(s.calcContainer, s.nfcContainer)
 	s.nfcContainer.Hide()
 
-	leftPanel := container.NewBorder(
-		container.NewVBox(cardHeader, s.descEntry, s.opsDisplay, totalRow, s.msgLabel),
-		nil, nil, nil,
-		leftContent,
-	)
-
-	// ── Right panel: historial ────────────────────────────────────────────────
-	s.historial = newHistorialWidget("📋  Historial de pagos")
+	// Historial compacto debajo del teclado
+	s.historial = newHistorialWidget("📋 Últimos")
 	if uid != "" {
 		s.historial.Load(uid)
 	}
 
-	split := container.NewHSplit(leftPanel, container.NewPadded(s.historial.CanvasObject()))
-	split.Offset = 0.58
+	leftPanel := container.NewBorder(
+		container.NewVBox(cardHeader, s.descEntry, s.opsDisplay, totalRow, s.msgLabel),
+		s.historial.CanvasObject(),
+		nil, nil,
+		leftContent,
+	)
+
+	// ── Right panel: price lists or fallback to empty ─────────────────────────
+	rightPanel := s.buildPriceListPanel()
+
+	split := container.NewHSplit(leftPanel, rightPanel)
+	split.Offset = 0.50
 	return split
+}
+
+// buildPriceListPanel creates the right panel with dropdown + scrollable item list.
+func (s *PagoScreen) buildPriceListPanel() fyne.CanvasObject {
+	listas := listasGetAll()
+	if len(listas) == 0 {
+		// No price lists available — show placeholder
+		noListas := widget.NewLabelWithStyle(
+			"Sin listas de precios", fyne.TextAlignCenter, fyne.TextStyle{Italic: true},
+		)
+		return container.NewCenter(noListas)
+	}
+
+	// Build dropdown options
+	options := make([]string, len(listas))
+	for i, l := range listas {
+		options[i] = l.Nombre
+	}
+
+	s.itemsPanel = container.NewVBox()
+	scrollItems := container.NewVScroll(s.itemsPanel)
+	scrollItems.SetMinSize(fyne.NewSize(250, 300))
+
+	s.listaSelect = widget.NewSelect(options, func(selected string) {
+		for _, l := range listas {
+			if l.Nombre == selected {
+				s.selectedLista = l.ID
+				s.renderItems(l.ID)
+				break
+			}
+		}
+	})
+	s.listaSelect.PlaceHolder = "Seleccionar lista..."
+
+	// Auto-select first list
+	if len(listas) > 0 {
+		s.listaSelect.SetSelected(listas[0].Nombre)
+	}
+
+	header := widget.NewLabelWithStyle("🛒 Carta", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+	return container.NewBorder(
+		container.NewVBox(header, s.listaSelect),
+		nil, nil, nil,
+		scrollItems,
+	)
+}
+
+// renderItems populates the items panel with buttons for the selected list.
+func (s *PagoScreen) renderItems(listaID int) {
+	s.itemsPanel.RemoveAll()
+
+	detalle := listasGetDetalle(listaID)
+	if detalle == nil {
+		s.itemsPanel.Add(widget.NewLabel("Error cargando items"))
+		s.itemsPanel.Refresh()
+		return
+	}
+
+	for _, item := range detalle.Items {
+		item := item // capture
+		precio, _ := strconv.ParseFloat(item.Precio, 64)
+
+		// Build row: [icon] Name ........... Price
+		var row fyne.CanvasObject
+
+		nameTxt := widget.NewLabel(item.Nombre)
+		nameTxt.Wrapping = fyne.TextTruncate
+		priceTxt := widget.NewLabelWithStyle(
+			fmt.Sprintf("%.2f €", precio),
+			fyne.TextAlignTrailing,
+			fyne.TextStyle{Bold: true},
+		)
+
+		// Try to render icon
+		iconData := listasGetIcono(item.ID)
+		if len(iconData) > 0 {
+			img := canvas.NewImageFromReader(bytes.NewReader(iconData), fmt.Sprintf("item_%d", item.ID))
+			img.SetMinSize(fyne.NewSize(24, 24))
+			img.FillMode = canvas.ImageFillContain
+			row = container.NewBorder(nil, nil, img, priceTxt, nameTxt)
+		} else {
+			row = container.NewBorder(nil, nil, nil, priceTxt, nameTxt)
+		}
+
+		btn := widget.NewButton("", func() {
+			s.addItemToTotal(item.Nombre, precio)
+		})
+		btn.Importance = widget.LowImportance
+
+		// Stack the row content over an invisible button for tap handling
+		tappable := container.NewStack(btn, container.New(layout.NewPaddedLayout(), row))
+		s.itemsPanel.Add(tappable)
+	}
+	s.itemsPanel.Refresh()
+}
+
+// addItemToTotal adds an item price to the calculator total (equivalent to typing + price).
+func (s *PagoScreen) addItemToTotal(nombre string, precio float64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// If there's a pending number entry, commit it first
+	if s.numActual != "" {
+		val, _ := strconv.ParseFloat(s.numActual, 64)
+		if s.multiplyPending {
+			val = s.multiplyVal * val
+			s.multiplyPending = false
+			s.multiplyVal = 0
+		}
+		s.opStack = append(s.opStack, pagoOpSnapshot{
+			displayOps:      s.displayOps,
+			total:           s.total,
+			multiplyPending: s.multiplyPending,
+			multiplyVal:     s.multiplyVal,
+		})
+		s.total += val
+		s.displayOps += s.numActual + " + "
+		s.numActual = ""
+	}
+
+	// Snapshot before adding item
+	s.opStack = append(s.opStack, pagoOpSnapshot{
+		displayOps:      s.displayOps,
+		total:           s.total,
+		multiplyPending: s.multiplyPending,
+		multiplyVal:     s.multiplyVal,
+	})
+
+	s.total += precio
+	s.displayOps += fmt.Sprintf("%s(%.2f) + ", nombre, precio)
+	s.refreshDisplay()
 }
 
 // ── Calculator logic ──────────────────────────────────────────────────────────

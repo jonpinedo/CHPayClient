@@ -357,6 +357,76 @@ func apiGetCapituloLogo(capituloID int) ([]byte, error) {
 	return raw, nil
 }
 
+// ── Listas de Precios ─────────────────────────────────────────────────────────
+
+type ListaPrecios struct {
+	ID       int    `json:"id"`
+	Nombre   string `json:"nombre"`
+	NumItems int    `json:"num_items"`
+}
+
+type ItemPrecio struct {
+	ID         int    `json:"id"`
+	Nombre     string `json:"nombre"`
+	Precio     string `json:"precio"`
+	TieneIcono bool   `json:"tiene_icono"`
+	Orden      int    `json:"orden"`
+}
+
+type ListaDetalle struct {
+	ID     int          `json:"id"`
+	Nombre string       `json:"nombre"`
+	Items  []ItemPrecio `json:"items"`
+}
+
+// apiGetListas fetches price lists for a chapter (requires auth).
+func apiGetListas(capituloID int) ([]ListaPrecios, error) {
+	raw, code, err := doGetRaw(fmt.Sprintf("/api/capitulos/%d/listas", capituloID))
+	if err != nil {
+		return nil, err
+	}
+	if code != 200 {
+		return nil, fmt.Errorf("HTTP %d: %s", code, extractDetail(raw))
+	}
+	var listas []ListaPrecios
+	if err := json.Unmarshal(raw, &listas); err != nil {
+		return nil, err
+	}
+	return listas, nil
+}
+
+// apiGetListaDetalle fetches a single price list with all items (requires auth).
+func apiGetListaDetalle(capituloID, listaID int) (*ListaDetalle, error) {
+	raw, code, err := doGetRaw(fmt.Sprintf("/api/capitulos/%d/listas/%d", capituloID, listaID))
+	if err != nil {
+		return nil, err
+	}
+	if code != 200 {
+		return nil, fmt.Errorf("HTTP %d: %s", code, extractDetail(raw))
+	}
+	var detalle ListaDetalle
+	if err := json.Unmarshal(raw, &detalle); err != nil {
+		return nil, err
+	}
+	return &detalle, nil
+}
+
+// apiGetItemIcono fetches the icon image for a price list item (requires auth).
+func apiGetItemIcono(capituloID, listaID, itemID int) ([]byte, error) {
+	path := fmt.Sprintf("/api/capitulos/%d/listas/%d/items/%d/icono", capituloID, listaID, itemID)
+	raw, code, err := doGetRaw(path)
+	if err != nil {
+		return nil, err
+	}
+	if code == 404 {
+		return nil, nil
+	}
+	if code != 200 {
+		return nil, fmt.Errorf("HTTP %d", code)
+	}
+	return raw, nil
+}
+
 // ── Health ────────────────────────────────────────────────────────────────────
 
 func apiCheckHealth() bool {

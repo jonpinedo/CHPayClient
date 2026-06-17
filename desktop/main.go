@@ -124,6 +124,9 @@ func (c *AppController) showMainApp() {
 	// Descargar logo del capítulo (no bloqueante si falla)
 	capituloLogo, _ := apiGetCapituloLogo(info.CapituloID)
 
+	// Cargar listas de precios en cache
+	listasLoadCache(info.CapituloID)
+
 	// Usar logo como icono de ventana/barra de tareas
 	if len(capituloLogo) > 0 {
 		iconRes := fyne.NewStaticResource("capitulo_logo", capituloLogo)
