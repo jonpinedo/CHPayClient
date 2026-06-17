@@ -11,8 +11,8 @@ import (
 )
 
 type SettingsScreen struct {
-	win      fyne.Window
-	onLogout func()
+	win       fyne.Window
+	onLogout  func()
 	urlEntry  *widget.Entry
 	urlMsg    *widget.Label
 	nameEntry *widget.Entry
@@ -99,8 +99,8 @@ func (s *SettingsScreen) buildDeviceSection() fyne.CanvasObject {
 	status := configGetStatus()
 
 	statusMap := map[string][2]string{
-		"authorized":    {"✅ Autorizado", "green"},
-		"pending":       {"⏳ Pendiente", "orange"},
+		"authorized":     {"✅ Autorizado", "green"},
+		"pending":        {"⏳ Pendiente", "orange"},
 		"not_registered": {"❌ No registrado", "red"},
 	}
 	statusInfo := [2]string{"Desconocido", "gray"}

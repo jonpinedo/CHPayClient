@@ -19,9 +19,9 @@ func (e *AuthError) IsAuthError() bool {
 }
 
 // authRequestRegistration is Step 1: request device registration.
-func authRequestRegistration(deviceName string) error {
+func authRequestRegistration(deviceName string, capituloID int) error {
 	deviceID := configGetDeviceID()
-	err := apiRegisterRequest(deviceID, deviceName)
+	err := apiRegisterRequest(deviceID, deviceName, capituloID)
 	if err != nil {
 		return err
 	}

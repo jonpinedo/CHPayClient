@@ -131,11 +131,11 @@ func configSave() {
 
 // ── Getters / setters ──────────────────────────────────────────────────────────
 
-func configGetAPIURL() string    { return globalConfig.APIURL }
-func configGetDeviceID() string  { return globalConfig.DeviceID }
+func configGetAPIURL() string     { return globalConfig.APIURL }
+func configGetDeviceID() string   { return globalConfig.DeviceID }
 func configGetDeviceName() string { return globalConfig.DeviceName }
-func configGetToken() string     { return globalConfig.PermanentToken }
-func configGetStatus() string    { return globalConfig.DeviceStatus }
+func configGetToken() string      { return globalConfig.PermanentToken }
+func configGetStatus() string     { return globalConfig.DeviceStatus }
 func configIsAuthorized() bool {
 	return globalConfig.DeviceStatus == "authorized" && globalConfig.PermanentToken != ""
 }

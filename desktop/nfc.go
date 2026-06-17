@@ -27,8 +27,8 @@ var (
 	nfcCbs   NFCCallbacks
 	nfcCbsMu sync.Mutex
 
-	nfcRunning     bool
-	nfcStopChan    chan struct{}
+	nfcRunning       bool
+	nfcStopChan      chan struct{}
 	nfcCurrentReader string
 	nfcLastUID       string
 	nfcMu            sync.Mutex

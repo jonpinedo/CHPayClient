@@ -251,11 +251,16 @@ func (s *RecargaScreen) processRecarga() {
 func (s *RecargaScreen) validateAndRecharge(uid string) {
 	s.nfcStatusLbl.SetText("Validando tarjeta...")
 
-	_, err := apiValidarTarjeta(uid)
+	result, err := apiValidarTarjeta(uid)
 	if err != nil {
 		s.nfcStatusLbl.SetText("❌ " + err.Error())
 		s.nfcCancelBtn.Enable()
 		return
+	}
+
+	if result.MonederoCreado {
+		s.nfcStatusLbl.SetText("ℹ️ Monedero creado en este capítulo. Saldo: 0.00€")
+		time.Sleep(2 * time.Second)
 	}
 
 	s.nfcStatusLbl.SetText("Procesando recarga...")

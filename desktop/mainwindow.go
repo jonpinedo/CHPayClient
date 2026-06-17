@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bytes"
 	"image/color"
 
 	"fyne.io/fyne/v2"
@@ -37,11 +38,13 @@ var navItems = []navItem{
 
 // MainWindow manages the sidebar + swappable content area.
 type MainWindow struct {
-	win           fyne.Window
-	roles         []string
-	deviceName    string
-	pendingUpdate *UpdateInfo
-	onLogout      func()
+	win            fyne.Window
+	roles          []string
+	deviceName     string
+	capituloNombre string
+	capituloLogo   []byte
+	pendingUpdate  *UpdateInfo
+	onLogout       func()
 
 	// Screens (created once, swapped by navigate)
 	homeScreen     *HomeScreen
@@ -51,10 +54,10 @@ type MainWindow struct {
 	settingsScreen *SettingsScreen
 
 	// Navigation
-	currentID    string
-	content      *fyne.Container // Stack layout — holds exactly one screen
-	navBtns      map[string]*widget.Button
-	screenCache  map[string]fyne.CanvasObject // built once, reused
+	currentID   string
+	content     *fyne.Container // Stack layout — holds exactly one screen
+	navBtns     map[string]*widget.Button
+	screenCache map[string]fyne.CanvasObject // built once, reused
 
 	// NFC status label (bottom of sidebar)
 	nfcStatusText *canvas.Text
@@ -63,19 +66,21 @@ type MainWindow struct {
 	updateBanner fyne.CanvasObject
 }
 
-func newMainWindow(win fyne.Window, roles []string, deviceName string, pendingUpdate *UpdateInfo, onLogout func()) *MainWindow {
+func newMainWindow(win fyne.Window, roles []string, deviceName string, capituloNombre string, capituloLogo []byte, pendingUpdate *UpdateInfo, onLogout func()) *MainWindow {
 	mw := &MainWindow{
-		win:           win,
-		roles:         roles,
-		deviceName:    deviceName,
-		pendingUpdate: pendingUpdate,
-		onLogout:      onLogout,
-		navBtns:       make(map[string]*widget.Button),
-		screenCache:   make(map[string]fyne.CanvasObject),
+		win:            win,
+		roles:          roles,
+		deviceName:     deviceName,
+		capituloNombre: capituloNombre,
+		capituloLogo:   capituloLogo,
+		pendingUpdate:  pendingUpdate,
+		onLogout:       onLogout,
+		navBtns:        make(map[string]*widget.Button),
+		screenCache:    make(map[string]fyne.CanvasObject),
 	}
 
 	// Create all screens up front
-	mw.homeScreen = newHomeScreen(win, roles, deviceName,
+	mw.homeScreen = newHomeScreen(win, roles, deviceName, mw.capituloNombre,
 		func() { mw.navigate(screenPago) },
 		func() { mw.navigate(screenRecarga) },
 	)
@@ -98,9 +103,21 @@ func newMainWindow(win fyne.Window, roles []string, deviceName string, pendingUp
 
 func (mw *MainWindow) build() fyne.CanvasObject {
 	// ── Sidebar ───────────────────────────────────────────────────────────────
-	logoLbl := widget.NewLabelWithStyle(
-		"CHPay", fyne.TextAlignLeading, fyne.TextStyle{Bold: true},
-	)
+	// Logo del capítulo + nombre
+	var headerRow fyne.CanvasObject
+	if len(mw.capituloLogo) > 0 {
+		logoImg := canvas.NewImageFromReader(bytes.NewReader(mw.capituloLogo), "capitulo_logo")
+		logoImg.SetMinSize(fyne.NewSize(36, 36))
+		logoImg.FillMode = canvas.ImageFillContain
+		capNameLbl := widget.NewLabelWithStyle(
+			mw.capituloNombre, fyne.TextAlignLeading, fyne.TextStyle{Bold: true},
+		)
+		headerRow = container.NewHBox(logoImg, capNameLbl)
+	} else {
+		headerRow = widget.NewLabelWithStyle(
+			"📍 "+mw.capituloNombre, fyne.TextAlignLeading, fyne.TextStyle{Bold: true},
+		)
+	}
 	devLbl := widget.NewLabel(truncate(mw.deviceName, 18))
 
 	navRows := []fyne.CanvasObject{}
@@ -123,7 +140,7 @@ func (mw *MainWindow) build() fyne.CanvasObject {
 
 	topSidebar := container.NewVBox(
 		append([]fyne.CanvasObject{
-			container.NewPadded(logoLbl),
+			container.NewPadded(headerRow),
 			container.NewPadded(devLbl),
 		}, navRows...)...,
 	)

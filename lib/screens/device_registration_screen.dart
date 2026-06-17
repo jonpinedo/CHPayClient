@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
+import '../services/api_service.dart';
 
 class DeviceRegistrationScreen extends StatefulWidget {
   final VoidCallback onRegistrationComplete;
@@ -19,11 +20,33 @@ class _DeviceRegistrationScreenState extends State<DeviceRegistrationScreen> {
   String _errorMessage = '';
   String _deviceId = '';
   
+  // Capítulos
+  List<Map<String, dynamic>> _capitulos = [];
+  int? _capituloSeleccionado;
+  bool _cargandoCapitulos = true;
+  String? _errorCapitulos;
+  
   @override
   void initState() {
     super.initState();
     _nameController = TextEditingController();
     _loadDeviceInfo();
+    _loadCapitulos();
+  }
+  
+  Future<void> _loadCapitulos() async {
+    try {
+      final capitulos = await APIService.obtenerCapitulos();
+      setState(() {
+        _capitulos = capitulos;
+        _cargandoCapitulos = false;
+      });
+    } catch (e) {
+      setState(() {
+        _errorCapitulos = 'No se pudieron cargar los capítulos: $e';
+        _cargandoCapitulos = false;
+      });
+    }
   }
   
   Future<void> _loadDeviceInfo() async {
@@ -59,6 +82,7 @@ class _DeviceRegistrationScreenState extends State<DeviceRegistrationScreen> {
     try {
       await AuthService.requestDeviceRegistration(
         deviceName: _nameController.text,
+        capituloId: _capituloSeleccionado,
       );
       
       setState(() {
@@ -242,6 +266,60 @@ class _DeviceRegistrationScreenState extends State<DeviceRegistrationScreen> {
           ),
           textInputAction: TextInputAction.done,
         ),
+        const SizedBox(height: 20),
+        // Selector de capítulo
+        if (_cargandoCapitulos)
+          const Center(child: CircularProgressIndicator())
+        else if (_errorCapitulos != null)
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.red.shade50,
+              border: Border.all(color: Colors.red.shade300),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Column(
+              children: [
+                Text(_errorCapitulos!, style: const TextStyle(color: Colors.red)),
+                const SizedBox(height: 8),
+                TextButton(
+                  onPressed: () {
+                    setState(() {
+                      _cargandoCapitulos = true;
+                      _errorCapitulos = null;
+                    });
+                    _loadCapitulos();
+                  },
+                  child: const Text('Reintentar'),
+                ),
+              ],
+            ),
+          )
+        else
+          DropdownButtonFormField<int?>(
+            value: _capituloSeleccionado,
+            decoration: InputDecoration(
+              labelText: 'Capítulo (opcional)',
+              hintText: 'Selecciona un capítulo',
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+              prefixIcon: const Icon(Icons.location_city),
+            ),
+            items: [
+              const DropdownMenuItem<int?>(
+                value: null,
+                child: Text('Sin asignar'),
+              ),
+              ..._capitulos.map((c) => DropdownMenuItem<int?>(
+                value: c['id'] as int,
+                child: Text(c['nombre'] as String),
+              )),
+            ],
+            onChanged: (value) {
+              setState(() => _capituloSeleccionado = value);
+            },
+          ),
         const SizedBox(height: 24),
         SizedBox(
           width: double.infinity,

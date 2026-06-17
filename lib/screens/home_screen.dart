@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'dart:typed_data';
 import 'package:nfc_manager/nfc_manager.dart';
 import 'package:nfc_manager/nfc_manager_android.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -32,6 +33,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   String nombreDispositivo = 'Cargando...';
   List<String> roles = [];
   bool rolesLoaded = false;
+  
+  // Capítulo (multi-tenancy)
+  int? capituloId;
+  String? capituloNombre;
+  Uint8List? capituloLogo;
+  bool _sinCapitulo = false; // true si auth/me devuelve capitulo_id null
   
   // Control de sesión NFC persistente
   bool _nfcSessionActiva = false;
@@ -175,6 +182,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             tarjetaValida = true;
           });
           
+          if (resultado['monedero_creado'] == true) {
+            _mostrarAvisoMonederoCreado();
+          }
           HapticFeedback.mediumImpact();
         }
       }
@@ -201,13 +211,33 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           estado = 'Error de conexión: ${info['error']}';
         });
       } else {
-        print('✅ Dispositivo cargado: ${info['nombre']}');
+        // Extraer capítulo
+        final capId = info['capitulo_id'];
+        final capNombre = info['capitulo_nombre'] as String?;
+        
+        if (capId == null) {
+          print('❌ Dispositivo sin capítulo asignado');
+          setState(() {
+            _sinCapitulo = true;
+            nombreDispositivo = info['nombre'] ?? 'Dispositivo';
+          });
+          return;
+        }
+        
+        print('✅ Dispositivo cargado: ${info['nombre']} - Capítulo: $capNombre');
         setState(() {
           nombreDispositivo = info['nombre'] ?? 'Dispositivo';
           roles = List<String>.from(info['roles'] ?? []);
           rolesLoaded = true;
+          capituloId = capId is int ? capId : int.tryParse(capId.toString());
+          capituloNombre = capNombre;
           estado = 'Listo';
         });
+        
+        // Cargar logo del capítulo en segundo plano
+        if (capituloId != null) {
+          _cargarLogoCapitulo(capituloId!);
+        }
       }
     } catch (e) {
       print('❌ Excepción al cargar dispositivo: $e');
@@ -215,6 +245,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         nombreDispositivo = 'Error';
         estado = 'No se pudo conectar al servidor: $e';
       });
+    }
+  }
+
+  Future<void> _cargarLogoCapitulo(int id) async {
+    final logo = await APIService.obtenerLogoCapitulo(id);
+    if (logo != null && mounted) {
+      setState(() => capituloLogo = logo);
     }
   }
 
@@ -261,6 +298,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           isLoading = false;
           tarjetaValida = true;
         });
+        
+        if (resultado['monedero_creado'] == true) {
+          _mostrarAvisoMonederoCreado();
+        }
       }
     } catch (e) {
       setState(() {
@@ -316,6 +357,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             tarjetaValida = true;
           });
           
+          if (resultado['monedero_creado'] == true) {
+            _mostrarAvisoMonederoCreado();
+          }
           // Vibración de éxito
           HapticFeedback.mediumImpact();
         }
@@ -341,6 +385,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         content: Text(mensaje),
         backgroundColor: Colors.red,
         duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+
+  void _mostrarAvisoMonederoCreado() {
+    if (!mounted) return;
+    final cap = capituloNombre ?? 'este capítulo';
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Monedero creado en $cap. Saldo: 0.00€'),
+        backgroundColor: Colors.blue,
+        duration: const Duration(seconds: 4),
       ),
     );
   }
@@ -439,9 +495,61 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    // Bloquear si no tiene capítulo asignado
+    if (_sinCapitulo) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('CHPay')),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(32),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.block, size: 64, color: Colors.orange),
+                const SizedBox(height: 16),
+                const Text(
+                  'Dispositivo sin capítulo asignado',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Contacta al administrador para que asigne este dispositivo a un capítulo.',
+                  style: TextStyle(fontSize: 14, color: Colors.grey),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 24),
+                ElevatedButton(
+                  onPressed: () {
+                    setState(() => _sinCapitulo = false);
+                    _cargarInfoDispositivo();
+                  },
+                  child: const Text('Reintentar'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('CHPay - TPV NFC'),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (capituloLogo != null)
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: CircleAvatar(
+                  radius: 14,
+                  backgroundImage: MemoryImage(capituloLogo!),
+                  backgroundColor: Colors.transparent,
+                ),
+              ),
+            Text(capituloNombre ?? 'CHPay'),
+          ],
+        ),
         actions: [
           if (_appVersion.isNotEmpty)
             Padding(
@@ -602,6 +710,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
+                              if (capituloNombre != null)
+                                Text(
+                                  'Capítulo: $capituloNombre',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.blue.shade700,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
                               Text(
                                 'Roles: ${roles.join(", ")}',
                                 style: TextStyle(

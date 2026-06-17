@@ -373,6 +373,11 @@ func (s *PagoScreen) validateAndPay(uid string) {
 		return
 	}
 
+	if result.MonederoCreado {
+		s.nfcStatusLbl.SetText("ℹ️ Monedero creado en este capítulo. Saldo: 0.00€")
+		time.Sleep(2 * time.Second)
+	}
+
 	s.nfcStatusLbl.SetText("Procesando pago...")
 	desc := s.descEntry.Text
 	if desc == "" {
@@ -460,5 +465,3 @@ func (s *PagoScreen) buildKeypad() fyne.CanvasObject {
 		num("."), num("0"), op("×", widget.WarningImportance, s.pressMultiply), okBtn,
 	)
 }
-
-

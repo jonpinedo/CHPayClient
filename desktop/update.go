@@ -5,10 +5,10 @@
 //  1. checkForUpdate()    → consulta /api/update/version?platform=desktop
 //  2. downloadUpdate()    → descarga a %TEMP%\chpay-update.exe
 //  3. applyUpdate()       → lanza el nuevo exe con flags --upgrade --target=<ruta> --oldpid=<PID>
-//                           y cierra la app actual
+//     y cierra la app actual
 //  4. handleUpgradeMode() → el nuevo exe (desde temp) detecta los flags al arrancar,
-//                           espera que el proceso antiguo termine, se copia sobre el target,
-//                           relanza desde la ruta final y se elimina del temp
+//     espera que el proceso antiguo termine, se copia sobre el target,
+//     relanza desde la ruta final y se elimina del temp
 package main
 
 import (

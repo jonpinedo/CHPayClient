@@ -84,6 +84,21 @@ func doGetRaw(path string) ([]byte, int, error) {
 	return raw, resp.StatusCode, nil
 }
 
+// doGetPublic sends a GET request without auth headers (for public endpoints).
+func doGetPublic(path string) ([]byte, int, error) {
+	req, err := http.NewRequest("GET", apiURL(path), nil)
+	if err != nil {
+		return nil, 0, err
+	}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	return raw, resp.StatusCode, nil
+}
+
 func extractDetail(body []byte) string {
 	var m map[string]interface{}
 	if json.Unmarshal(body, &m) == nil {
@@ -101,16 +116,19 @@ func extractDetail(body []byte) string {
 // ── Model structs ─────────────────────────────────────────────────────────────
 
 type DeviceInfo struct {
-	Nombre string   `json:"nombre"`
-	Roles  []string `json:"roles"`
+	Nombre         string   `json:"nombre"`
+	Roles          []string `json:"roles"`
+	CapituloID     int      `json:"capitulo_id"`
+	CapituloNombre string   `json:"capitulo_nombre"`
 }
 
 type ValidarTarjetaResp struct {
-	Nombre      string `json:"nombre"`
-	SocioID     int    `json:"socio_id"`
-	NumeroSocio int    `json:"numero_socio"`
-	Saldo       string `json:"saldo"`
-	Permitido   bool   `json:"permitido"`
+	Nombre         string `json:"nombre"`
+	SocioID        int    `json:"socio_id"`
+	NumeroSocio    int    `json:"numero_socio"`
+	Saldo          string `json:"saldo"`
+	Permitido      bool   `json:"permitido"`
+	MonederoCreado bool   `json:"monedero_creado"`
 }
 
 type Transaccion struct {
@@ -138,11 +156,15 @@ type Socio struct {
 
 // ── Auth endpoints ────────────────────────────────────────────────────────────
 
-func apiRegisterRequest(deviceID, deviceName string) error {
-	_, err := doPost("/api/auth/register-request", map[string]string{
+func apiRegisterRequest(deviceID, deviceName string, capituloID int) error {
+	body := map[string]interface{}{
 		"imei":   deviceID,
 		"nombre": deviceName,
-	}, false)
+	}
+	if capituloID > 0 {
+		body["capitulo_id"] = capituloID
+	}
+	_, err := doPost("/api/auth/register-request", body, false)
 	return err
 }
 
@@ -291,6 +313,48 @@ func apiAsociarTarjeta(numeroSocio int, uid string) error {
 		"uid":          uid,
 	}, true)
 	return err
+}
+
+// ── Capítulos (Multi-tenancy) ────────────────────────────────────────────────────────
+
+type Capitulo struct {
+	ID        int    `json:"id"`
+	Nombre    string `json:"nombre"`
+	Tipo      string `json:"tipo"`
+	Direccion string `json:"direccion"`
+	TieneLogo bool   `json:"tiene_logo"`
+}
+
+// apiGetCapitulos fetches active chapters (public, no auth).
+func apiGetCapitulos() ([]Capitulo, error) {
+	raw, code, err := doGetPublic("/api/capitulos/")
+	if err != nil {
+		return nil, err
+	}
+	if code != 200 {
+		return nil, fmt.Errorf("HTTP %d: %s", code, extractDetail(raw))
+	}
+	var caps []Capitulo
+	if err := json.Unmarshal(raw, &caps); err != nil {
+		return nil, err
+	}
+	return caps, nil
+}
+
+// apiGetCapituloLogo fetches the chapter logo image bytes (public, no auth).
+// Returns nil if the chapter has no logo (404).
+func apiGetCapituloLogo(capituloID int) ([]byte, error) {
+	raw, code, err := doGetPublic(fmt.Sprintf("/api/capitulos/%d/logo", capituloID))
+	if err != nil {
+		return nil, err
+	}
+	if code == 404 {
+		return nil, nil
+	}
+	if code != 200 {
+		return nil, fmt.Errorf("HTTP %d", code)
+	}
+	return raw, nil
 }
 
 // ── Health ────────────────────────────────────────────────────────────────────

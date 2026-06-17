@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 import 'ziti_service.dart';
 
 class APIService {
@@ -254,6 +255,47 @@ class APIService {
       }
     } catch (e) {
       return {'error': e.toString()};
+    }
+  }
+
+  // ── Capítulos (Multi-tenancy) ───────────────────────────────────────────────
+
+  /// Obtener lista de capítulos activos (endpoint público, sin auth)
+  static Future<List<Map<String, dynamic>>> obtenerCapitulos() async {
+    try {
+      final response = await ZitiService.get(
+        '$baseUrl/api/capitulos/',
+        headers: publicHeaders,
+      );
+
+      if (response.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(response.body);
+        return data.cast<Map<String, dynamic>>();
+      } else {
+        throw Exception('Error: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('❌ Error al obtener capítulos: $e');
+      rethrow;
+    }
+  }
+
+  /// Obtener logo de un capítulo (endpoint público, devuelve bytes de imagen)
+  /// Retorna null si el capítulo no tiene logo (404).
+  static Future<Uint8List?> obtenerLogoCapitulo(int capituloId) async {
+    try {
+      final response = await ZitiService.get(
+        '$baseUrl/api/capitulos/$capituloId/logo',
+        headers: publicHeaders,
+      );
+
+      if (response.statusCode == 200) {
+        return response.bodyBytes;
+      }
+      return null;
+    } catch (e) {
+      print('⚠️ Error al obtener logo del capítulo $capituloId: $e');
+      return null;
     }
   }
 }

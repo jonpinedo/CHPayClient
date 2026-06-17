@@ -168,6 +168,9 @@ class _RecargaScreenState extends State<RecargaScreen> {
               setState(() => isProcessing = false);
               _mostrarError(resultado['error'].toString());
             } else {
+              if (resultado['monedero_creado'] == true) {
+                _mostrarAvisoMonederoCreado();
+              }
               uidValidado = uidLeido;
               await _confirmarConTarjeta();
             }
@@ -208,6 +211,16 @@ class _RecargaScreenState extends State<RecargaScreen> {
       SnackBar(
         content: Text(mensaje),
         backgroundColor: Colors.red,
+      ),
+    );
+  }
+
+  void _mostrarAvisoMonederoCreado() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Monedero creado en este capítulo. Saldo: 0.00€'),
+        backgroundColor: Colors.blue,
+        duration: Duration(seconds: 4),
       ),
     );
   }

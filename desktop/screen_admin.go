@@ -19,15 +19,15 @@ type AdminScreen struct {
 	onTarjetaAsociada func(uid string)
 
 	// Crear Socio tab
-	nombreEntry    *widget.Entry
-	emailEntry     *widget.Entry
-	telEntry       *widget.Entry
-	saldoEntry     *widget.Entry
-	crearMsg       *widget.Label
-	crearBtn       *widget.Button
-	irAsociarBtn   *widget.Button
-	crearOtroBtn   *widget.Button
-	socioCreado    int // numero_socio of newly created member
+	nombreEntry  *widget.Entry
+	emailEntry   *widget.Entry
+	telEntry     *widget.Entry
+	saldoEntry   *widget.Entry
+	crearMsg     *widget.Label
+	crearBtn     *widget.Button
+	irAsociarBtn *widget.Button
+	crearOtroBtn *widget.Button
+	socioCreado  int // numero_socio of newly created member
 
 	// Asociar Tarjeta tab
 	socios       []Socio
@@ -40,7 +40,7 @@ type AdminScreen struct {
 	asocStatus   *widget.Label
 
 	// NFC state for associations
-	nfcWaiting bool
+	nfcWaiting  bool
 	nfcNumSocio int
 }
 

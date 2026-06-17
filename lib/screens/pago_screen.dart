@@ -261,6 +261,10 @@ class _PagoScreenState extends State<PagoScreen> {
                 return;
               }
               
+              if (resultado['monedero_creado'] == true) {
+                _mostrarAvisoMonederoCreado();
+              }
+              
               uidValidado = uidLeido;
               await _confirmarConTarjeta();
             }
@@ -301,6 +305,16 @@ class _PagoScreenState extends State<PagoScreen> {
       SnackBar(
         content: Text(mensaje),
         backgroundColor: Colors.red,
+      ),
+    );
+  }
+
+  void _mostrarAvisoMonederoCreado() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Monedero creado en este capítulo. Saldo: 0.00€'),
+        backgroundColor: Colors.blue,
+        duration: Duration(seconds: 4),
       ),
     );
   }

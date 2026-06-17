@@ -141,6 +141,7 @@ class AuthService {
   /// Step 1: Request device registration
   static Future<Map<String, dynamic>> requestDeviceRegistration({
     required String deviceName,
+    int? capituloId,
   }) async {
     try {
       final deviceId = await getDeviceId();
@@ -148,14 +149,22 @@ class AuthService {
       print('📝 Solicitando registro del dispositivo...');
       print('   IMEI/UUID: $deviceId');
       print('   Nombre: $deviceName');
+      if (capituloId != null) {
+        print('   Capítulo: $capituloId');
+      }
+      
+      final body = <String, dynamic>{
+        'imei': deviceId,
+        'nombre': deviceName,
+      };
+      if (capituloId != null) {
+        body['capitulo_id'] = capituloId;
+      }
       
       final response = await ZitiService.post(
         '${APIService.baseUrl}/api/auth/register-request',
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'imei': deviceId,
-          'nombre': deviceName,
-        }),
+        body: jsonEncode(body),
       );
       
       if (response.statusCode == 200) {

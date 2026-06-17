@@ -21,11 +21,12 @@ const cardClearDelay = 2 * time.Minute
 
 // HomeScreen is the main landing screen after login.
 type HomeScreen struct {
-	win        fyne.Window
-	roles      []string
-	deviceName string
-	onGoPago   func()
-	onGoRecarga func()
+	win            fyne.Window
+	roles          []string
+	deviceName     string
+	capituloNombre string
+	onGoPago       func()
+	onGoRecarga    func()
 
 	// State (protected by mu)
 	mu          sync.Mutex
@@ -36,9 +37,9 @@ type HomeScreen struct {
 	clearTimer  *time.Timer
 
 	// UI bindings (goroutine-safe)
-	uidBind     binding.String
-	nameBind    binding.String
-	readerBind  binding.String
+	uidBind    binding.String
+	nameBind   binding.String
+	readerBind binding.String
 
 	// Canvas text for balance (needs color changes)
 	balanceText *canvas.Text
@@ -55,24 +56,26 @@ func newHomeScreen(
 	win fyne.Window,
 	roles []string,
 	deviceName string,
+	capituloNombre string,
 	onGoPago func(),
 	onGoRecarga func(),
 ) *HomeScreen {
 	return &HomeScreen{
-		win:         win,
-		roles:       roles,
-		deviceName:  deviceName,
-		onGoPago:    onGoPago,
-		onGoRecarga: onGoRecarga,
-		uidBind:     binding.NewString(),
-		nameBind:    binding.NewString(),
-		readerBind:  binding.NewString(),
+		win:            win,
+		roles:          roles,
+		deviceName:     deviceName,
+		capituloNombre: capituloNombre,
+		onGoPago:       onGoPago,
+		onGoRecarga:    onGoRecarga,
+		uidBind:        binding.NewString(),
+		nameBind:       binding.NewString(),
+		readerBind:     binding.NewString(),
 	}
 }
 
 func (h *HomeScreen) build() fyne.CanvasObject {
 	// Initialise bindings
-	h.uidBind.Set("Esperando tarjeta...")     //nolint:errcheck
+	h.uidBind.Set("Esperando tarjeta...")          //nolint:errcheck
 	h.nameBind.Set("Acerca una tarjeta al lector") //nolint:errcheck
 
 	// Update reader status now (NFC may already be running)
@@ -93,6 +96,7 @@ func (h *HomeScreen) build() fyne.CanvasObject {
 	deviceLbl := widget.NewLabelWithStyle(
 		"🖥  "+h.deviceName, fyne.TextAlignLeading, fyne.TextStyle{Bold: true},
 	)
+	capLbl := widget.NewLabel("📍 Capítulo: " + h.capituloNombre)
 	rolesLbl := widget.NewLabel("Roles: " + rolesText)
 
 	// ── Reader status ─────────────────────────────────────────────────────────
@@ -152,7 +156,7 @@ func (h *HomeScreen) build() fyne.CanvasObject {
 
 	return container.NewBorder(
 		container.NewVBox(
-			container.NewPadded(container.NewVBox(deviceLbl, rolesLbl)),
+			container.NewPadded(container.NewVBox(deviceLbl, capLbl, rolesLbl)),
 			container.NewPadded(readerLabel),
 			container.NewPadded(cardPanel),
 			container.NewPadded(actionRow),
@@ -264,6 +268,15 @@ func (h *HomeScreen) processCard(uid string) {
 	h.balanceText.Refresh()
 
 	h.setButtonsEnabled(result.Permitido)
+
+	// Aviso de monedero creado
+	if result.MonederoCreado {
+		go func() {
+			h.nameBind.Set("ℹ️ Monedero creado en " + h.capituloNombre + ". Saldo: 0.00€") //nolint:errcheck
+			time.Sleep(4 * time.Second)
+			h.nameBind.Set(result.Nombre) //nolint:errcheck
+		}()
+	}
 
 	if h.historial != nil {
 		h.historial.Load(uid)

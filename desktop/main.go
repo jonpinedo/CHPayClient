@@ -24,12 +24,12 @@ var (
 
 // Colores globales reutilizados en todas las pantallas.
 var (
-	colorGreen    = color.RGBA{R: 26, G: 122, B: 26, A: 255}
-	colorRed      = color.RGBA{R: 192, G: 57, B: 43, A: 255}
-	colorBlue     = color.RGBA{R: 21, G: 101, B: 192, A: 255}
-	colorGray     = color.RGBA{R: 128, G: 128, B: 128, A: 255}
-	colorRowBg    = color.RGBA{R: 245, G: 245, B: 245, A: 200}
-	colorOrange   = color.RGBA{R: 211, G: 84, B: 0, A: 255}
+	colorGreen  = color.RGBA{R: 26, G: 122, B: 26, A: 255}
+	colorRed    = color.RGBA{R: 192, G: 57, B: 43, A: 255}
+	colorBlue   = color.RGBA{R: 21, G: 101, B: 192, A: 255}
+	colorGray   = color.RGBA{R: 128, G: 128, B: 128, A: 255}
+	colorRowBg  = color.RGBA{R: 245, G: 245, B: 245, A: 200}
+	colorOrange = color.RGBA{R: 211, G: 84, B: 0, A: 255}
 )
 
 var fyneApp fyne.App
@@ -49,7 +49,9 @@ func main() {
 	configLoad()
 
 	fyneApp = app.New()
+	fyneApp.SetIcon(AppIcon)
 	win := fyneApp.NewWindow("CHPay Desktop")
+	win.SetIcon(AppIcon)
 	win.Resize(fyne.NewSize(520, 460))
 
 	ctrl := &AppController{win: win}
@@ -70,7 +72,7 @@ func (c *AppController) runApp() {
 
 func (c *AppController) showRegistration() {
 	c.win.SetTitle("CHPay Desktop — Registro")
-	c.win.Resize(fyne.NewSize(520, 460))
+	c.win.Resize(fyne.NewSize(520, 580))
 	c.win.SetFixedSize(true)
 
 	reg := newRegistrationScreen(c.win, func() {
@@ -113,11 +115,26 @@ func (c *AppController) showMainApp() {
 		}
 	}
 
-	c.win.SetTitle("CHPay Desktop v" + AppVersion)
+	// ─── Verificar capítulo asignado (bloquear si no tiene) ───────────────────
+	if info.CapituloID == 0 {
+		c.showBlockedNoCapitulo()
+		return
+	}
+
+	// Descargar logo del capítulo (no bloqueante si falla)
+	capituloLogo, _ := apiGetCapituloLogo(info.CapituloID)
+
+	// Usar logo como icono de ventana/barra de tareas
+	if len(capituloLogo) > 0 {
+		iconRes := fyne.NewStaticResource("capitulo_logo", capituloLogo)
+		c.win.SetIcon(iconRes)
+	}
+
+	c.win.SetTitle("CHPay Desktop — " + info.CapituloNombre + " v" + AppVersion)
 	c.win.Resize(fyne.NewSize(980, 600))
 	c.win.SetFixedSize(false)
 
-	mw := newMainWindow(c.win, roles, deviceName, c.pendingUpdate, func() {
+	mw := newMainWindow(c.win, roles, deviceName, info.CapituloNombre, capituloLogo, c.pendingUpdate, func() {
 		nfcStop()
 		authLogout()
 		c.showRegistration()
@@ -144,6 +161,35 @@ func (c *AppController) showConnectionError(msg string, retryFn func()) {
 
 	content := container.NewCenter(
 		container.NewVBox(title, msgLabel, hint, retryBtn),
+	)
+	c.win.SetContent(content)
+}
+
+// showBlockedNoCapitulo displays a blocking screen when the device has no chapter assigned.
+func (c *AppController) showBlockedNoCapitulo() {
+	c.win.SetTitle("CHPay Desktop — Sin capítulo")
+	c.win.Resize(fyne.NewSize(500, 350))
+	c.win.SetFixedSize(true)
+
+	title := widget.NewLabelWithStyle(
+		"⚠️  Dispositivo sin capítulo asignado",
+		fyne.TextAlignCenter,
+		fyne.TextStyle{Bold: true},
+	)
+	msgLabel := widget.NewLabel(
+		"Contacta al administrador para que asigne este dispositivo a un capítulo.",
+	)
+	msgLabel.Wrapping = fyne.TextWrapWord
+	msgLabel.Alignment = fyne.TextAlignCenter
+
+	retryBtn := widget.NewButton("🔄  Reintentar", func() {
+		c.win.SetFixedSize(false)
+		c.showMainApp()
+	})
+	retryBtn.Importance = widget.HighImportance
+
+	content := container.NewCenter(
+		container.NewVBox(title, widget.NewLabel(""), msgLabel, widget.NewLabel(""), retryBtn),
 	)
 	c.win.SetContent(content)
 }
