@@ -334,8 +334,17 @@ func (s *PagoScreen) addItemToTotal(nombre string, precio float64) {
 		multiplyVal:     s.multiplyVal,
 	})
 
-	s.total += precio
-	s.displayOps += fmt.Sprintf("%s(%.2f) + ", nombre, precio)
+	// If there's a pending multiply (e.g. "3*"), apply it to the item price
+	if s.multiplyPending {
+		cantidad := s.multiplyVal
+		s.total += cantidad * precio
+		s.displayOps += fmt.Sprintf("%.0f*%s(%.2f) + ", cantidad, nombre, precio)
+		s.multiplyPending = false
+		s.multiplyVal = 0
+	} else {
+		s.total += precio
+		s.displayOps += fmt.Sprintf("%s(%.2f) + ", nombre, precio)
+	}
 	s.refreshDisplay()
 }
 
