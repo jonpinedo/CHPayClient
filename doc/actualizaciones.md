@@ -58,8 +58,9 @@ cd desktop
 
 Requisitos:
 - API key admin, vía variable de entorno `CHPAY_PUBLISH_KEY`, parámetro
-  `-ApiKey`, o el fichero local `desktop/secrets.local.ps1` (no versionado, se
-  carga automáticamente). Ejemplo de ese fichero:
+  `-ApiKey`, o el fichero `secrets.local.ps1` en la raíz del workspace (no
+  versionado, compartido con `publish_apk.ps1`, se carga automáticamente).
+  Ejemplo de ese fichero:
   ```powershell
   $env:CHPAY_PUBLISH_KEY = "tu-api-key"
   ```
@@ -98,7 +99,8 @@ version: 1.1.4+6   # versionName+versionCode
 Requisitos:
 - Flutter en PATH
 - Samba share `\\truenas\compartido\apk-releases` montado
-- Variable `CHPAY_PUBLISH_KEY` (opcional, para notificar al servidor)
+- `CHPAY_PUBLISH_KEY` (opcional, para notificar al servidor): variable de
+  entorno, parámetro `-ApiToken`, o `secrets.local.ps1` en la raíz del workspace
 
 El script:
 1. Lee la versión de `pubspec.yaml`

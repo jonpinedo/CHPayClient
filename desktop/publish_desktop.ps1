@@ -19,8 +19,9 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 # ─── Cargar secretos locales (API key) si no vienen del entorno ───────────────
+# secrets.local.ps1 vive en la raíz del workspace (compartido con publish_apk.ps1).
 if (-not $ApiKey) {
-    $secretsFile = Join-Path $PSScriptRoot "secrets.local.ps1"
+    $secretsFile = Join-Path (Split-Path $PSScriptRoot -Parent) "secrets.local.ps1"
     if (Test-Path $secretsFile) {
         . $secretsFile
         $ApiKey = $env:CHPAY_PUBLISH_KEY

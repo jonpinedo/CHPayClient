@@ -20,6 +20,15 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+# ─── Cargar secretos locales (API key) si no vienen del entorno ───────
+if (-not $ApiToken) {
+    $secretsFile = Join-Path $PSScriptRoot "secrets.local.ps1"
+    if (Test-Path $secretsFile) {
+        . $secretsFile
+        $ApiToken = $env:CHPAY_PUBLISH_KEY
+    }
+}
+
 # ─── Leer versión actual del pubspec.yaml ─────────────────────────────
 $pubspec = Get-Content "pubspec.yaml" -Raw
 if ($pubspec -notmatch 'version:\s*([\d.]+)\+(\d+)') {

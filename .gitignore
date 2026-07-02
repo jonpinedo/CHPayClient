@@ -1,3 +1,7 @@
+# Secretos locales de publicación (NO versionar) — usados por publish_*.ps1
+secrets.local.ps1
+.env
+
 # Miscellaneous
 *.class
 *.log
