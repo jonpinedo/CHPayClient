@@ -164,9 +164,19 @@ Realiza un cobro. Requiere rol `TERMINAL`.
 {
   "uid": "AB:CD:EF:12:34:56:78",
   "monto": 25.50,
-  "descripcion": "Consumición"
+  "descripcion": "Consumición",
+  "operaciones": "2×3.00 + 1×1.50"
 }
 ```
+
+| Campo | Tipo | Obligatorio | Notas |
+|-------|------|-------------|-------|
+| `uid` | string | Sí | UID tarjeta NFC |
+| `monto` | decimal | Sí | Importe del cobro |
+| `descripcion` | string | No | Máx. 255 caracteres |
+| `operaciones` | string | No | Cadena informativa del detalle del cobro (máx. 1000 chars). Solo usado por Desktop; si no se envía queda `null` |
+
+La respuesta no incluye `operaciones`.
 
 Respuesta 200:
 ```json
@@ -220,16 +230,38 @@ Respuesta 200:
   "socio_nombre": "Juan Pérez",
   "transacciones": [
     {
-      "id": 457,
+      "id": 79,
+      "tipo": "COBRO",
+      "monto": "7.50",
+      "saldo_posterior": "59.50",
+      "timestamp": "2026-06-26T15:39:59.294454Z",
+      "descripcion": "Bar",
+      "operaciones": "2×3.00 + 1×1.50"
+    },
+    {
+      "id": 78,
+      "tipo": "COBRO",
+      "monto": "3.00",
+      "saldo_posterior": "62.50",
+      "timestamp": "2026-06-26T14:00:00",
+      "descripcion": "Pago",
+      "operaciones": null
+    },
+    {
+      "id": 77,
       "tipo": "RECARGA",
-      "monto": "50.00",
+      "monto": "20.00",
       "saldo_posterior": "175.00",
       "timestamp": "2026-06-17T10:35:00",
-      "descripcion": "Recarga en efectivo"
+      "descripcion": "Recarga en efectivo",
+      "operaciones": null
     }
-  ]
+  ],
+  "total_transacciones": 3
 }
 ```
+
+`operaciones` es `null` en recargas, ajustes y cobros antiguos (p. ej. Android no lo envía).
 
 ---
 

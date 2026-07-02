@@ -107,7 +107,16 @@ func buildHistorialRow(t Transaccion) fyne.CanvasObject {
 	infoText.TextSize = 10
 
 	topRow := container.NewBorder(nil, nil, tipoText, montoText, nil)
-	inner := container.NewPadded(container.NewVBox(topRow, infoText))
+	rows := []fyne.CanvasObject{topRow, infoText}
+
+	if t.Tipo == "COBRO" && strings.TrimSpace(t.Operaciones) != "" {
+		opsLbl := widget.NewLabel(t.Operaciones)
+		opsLbl.Wrapping = fyne.TextWrapWord
+		opsLbl.TextStyle = fyne.TextStyle{Italic: true}
+		rows = append(rows, opsLbl)
+	}
+
+	inner := container.NewPadded(container.NewVBox(rows...))
 
 	bg := canvas.NewRectangle(colorRowBg)
 	return container.NewStack(bg, inner)

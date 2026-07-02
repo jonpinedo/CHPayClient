@@ -138,6 +138,7 @@ type Transaccion struct {
 	SaldoPosterior string `json:"saldo_posterior"`
 	Timestamp      string `json:"timestamp"`
 	Descripcion    string `json:"descripcion"`
+	Operaciones    string `json:"operaciones"`
 }
 
 type HistorialResp struct {
@@ -225,12 +226,16 @@ func apiValidarTarjeta(uid string) (*ValidarTarjetaResp, error) {
 
 // ── Pagos ─────────────────────────────────────────────────────────────────────
 
-func apiHacerPago(uid string, monto float64, descripcion string) (string, error) {
-	result, err := doPost("/api/pagos/", map[string]interface{}{
+func apiHacerPago(uid string, monto float64, descripcion, operaciones string) (string, error) {
+	body := map[string]interface{}{
 		"uid":         uid,
 		"monto":       monto,
 		"descripcion": descripcion,
-	}, true)
+	}
+	if operaciones != "" {
+		body["operaciones"] = operaciones
+	}
+	result, err := doPost("/api/pagos/", body, true)
 	if err != nil {
 		return "", err
 	}

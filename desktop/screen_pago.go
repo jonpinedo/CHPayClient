@@ -481,6 +481,19 @@ func (s *PagoScreen) refreshDisplay() {
 	s.totalDisplay.Refresh()
 }
 
+// cadenaOperaciones returns the committed calculator chain (displayOps) for the API.
+func (s *PagoScreen) cadenaOperaciones() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cadena := strings.TrimSpace(s.displayOps + s.numActual)
+	cadena = strings.TrimSuffix(cadena, "+")
+	cadena = strings.TrimSpace(cadena)
+	if len(cadena) > 1000 {
+		cadena = cadena[:1000]
+	}
+	return cadena
+}
+
 // ── Payment flow ──────────────────────────────────────────────────────────────
 
 func (s *PagoScreen) processPago() {
@@ -534,7 +547,8 @@ func (s *PagoScreen) validateAndPay(uid string) {
 	if desc == "" {
 		desc = "Pago"
 	}
-	saldoPost, err := apiHacerPago(uid, s.montoConfirmado, desc)
+	operaciones := s.cadenaOperaciones()
+	saldoPost, err := apiHacerPago(uid, s.montoConfirmado, desc, operaciones)
 	if err != nil {
 		s.nfcStatusLbl.SetText("❌ " + err.Error())
 		s.nfcCancelBtn.Enable()
