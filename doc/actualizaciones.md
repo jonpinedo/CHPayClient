@@ -57,7 +57,12 @@ cd desktop
 ```
 
 Requisitos:
-- Variable de entorno `CHPAY_PUBLISH_KEY` con API key admin
+- API key admin, vía variable de entorno `CHPAY_PUBLISH_KEY`, parámetro
+  `-ApiKey`, o el fichero local `desktop/secrets.local.ps1` (no versionado, se
+  carga automáticamente). Ejemplo de ese fichero:
+  ```powershell
+  $env:CHPAY_PUBLISH_KEY = "tu-api-key"
+  ```
 - Go + TDM-GCC-64 configurados
 
 El script:

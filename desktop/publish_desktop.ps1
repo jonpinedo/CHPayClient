@@ -18,6 +18,15 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+# ─── Cargar secretos locales (API key) si no vienen del entorno ───────────────
+if (-not $ApiKey) {
+    $secretsFile = Join-Path $PSScriptRoot "secrets.local.ps1"
+    if (Test-Path $secretsFile) {
+        . $secretsFile
+        $ApiKey = $env:CHPAY_PUBLISH_KEY
+    }
+}
+
 # ─── Leer versión del build.bat ───────────────────────────────────────────────
 $buildBat = Get-Content ".\build.bat" -Raw
 if ($buildBat -notmatch 'set VERSION=(\d+\.\d+\.\d+)') {

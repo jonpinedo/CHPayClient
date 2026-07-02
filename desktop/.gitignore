@@ -10,3 +10,12 @@ chpay_v*.exe
 # OS
 .DS_Store
 Thumbs.db
+
+# Secretos locales de publicación (NO versionar)
+secrets.local.ps1
+.env
+
+# Herramientas/artefactos de diagnóstico NFC (uso local, no runtime)
+tools/
+usbpcap/
+capture*.txt
