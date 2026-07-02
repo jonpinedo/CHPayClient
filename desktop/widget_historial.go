@@ -3,12 +3,14 @@ package main
 
 import (
 	"fmt"
+	"image/color"
 	"strconv"
 	"strings"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
 
@@ -118,6 +120,16 @@ func buildHistorialRow(t Transaccion) fyne.CanvasObject {
 
 	inner := container.NewPadded(container.NewVBox(rows...))
 
-	bg := canvas.NewRectangle(colorRowBg)
+	bg := canvas.NewRectangle(historialRowBg())
 	return container.NewStack(bg, inner)
+}
+
+// historialRowBg devuelve el fondo de fila adaptado al tema activo, para que el
+// texto (que sigue el color del tema) contraste tanto en modo claro como oscuro.
+func historialRowBg() color.Color {
+	if fyneApp != nil && fyneApp.Settings().ThemeVariant() == theme.VariantDark {
+		// Sutil aclarado sobre el fondo oscuro del tema → texto claro legible.
+		return color.NRGBA{R: 255, G: 255, B: 255, A: 28}
+	}
+	return colorRowBg
 }

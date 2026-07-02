@@ -10,6 +10,7 @@ import (
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
 
@@ -201,8 +202,12 @@ func (mw *MainWindow) buildUpdateBanner() fyne.CanvasObject {
 		container.NewHBox(installBtn, dismissBtn),
 	)
 
-	// Fondo azul claro
-	bgColor := color.RGBA{R: 220, G: 235, B: 255, A: 255}
+	// Fondo azul: claro en modo claro, más oscuro en modo oscuro, para que el
+	// texto del tema (oscuro/claro) contraste en ambos.
+	var bgColor color.Color = color.RGBA{R: 220, G: 235, B: 255, A: 255}
+	if fyneApp != nil && fyneApp.Settings().ThemeVariant() == theme.VariantDark {
+		bgColor = colorBlue
+	}
 	bg := canvas.NewRectangle(bgColor)
 	bg.SetMinSize(fyne.NewSize(0, 40))
 
