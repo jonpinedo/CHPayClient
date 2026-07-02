@@ -25,6 +25,7 @@ type Config struct {
 	PermanentToken string `json:"permanent_token"`
 	DeviceStatus   string `json:"device_status"`
 	DebugMode      bool   `json:"debug_mode"`
+	NFCReader      string `json:"nfc_reader,omitempty"`
 }
 
 var globalConfig = Config{
@@ -163,5 +164,12 @@ func configSetStatus(status string) {
 func configClearCredentials() {
 	globalConfig.PermanentToken = ""
 	globalConfig.DeviceStatus = "not_registered"
+	configSave()
+}
+
+func configGetNFCReader() string { return globalConfig.NFCReader }
+
+func configSetNFCReader(name string) {
+	globalConfig.NFCReader = name
 	configSave()
 }

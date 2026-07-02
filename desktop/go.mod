@@ -2,6 +2,8 @@ module chpay-desktop
 
 go 1.21
 
+toolchain go1.22.12
+
 require (
 	fyne.io/fyne/v2 v2.4.4
 	github.com/ebfe/scard v0.0.0-20241214075232-7af069cabc25

@@ -16,6 +16,11 @@ type SettingsScreen struct {
 	urlEntry  *widget.Entry
 	urlMsg    *widget.Label
 	nameEntry *widget.Entry
+
+	nfcReaderStatus *widget.Label
+	nfcReaderSelect *widget.Select
+	nfcSelectBusy   bool
+	onNFCStatus     func(reader string)
 }
 
 func newSettingsScreen(win fyne.Window, onLogout func()) *SettingsScreen {
@@ -32,6 +37,7 @@ func (s *SettingsScreen) build() fyne.CanvasObject {
 		nil, nil, nil,
 		container.NewPadded(container.NewVBox(
 			s.buildAPISection(),
+			s.buildNFCSection(),
 			s.buildDeviceSection(),
 			s.buildCredentialsSection(),
 		)),
@@ -86,6 +92,80 @@ func (s *SettingsScreen) testConnection() {
 			s.urlMsg.SetText("❌ No se puede conectar a la API.")
 		}
 	}()
+}
+
+// setNFCStatusCallback updates the sidebar when the user picks a reader here.
+func (s *SettingsScreen) setNFCStatusCallback(fn func(reader string)) {
+	s.onNFCStatus = fn
+}
+
+// OnShow refreshes the NFC reader list when opening Config.
+func (s *SettingsScreen) OnShow() {
+	s.refreshNFCSection(nfcGetAvailableReaders())
+}
+
+// ── NFC reader section ────────────────────────────────────────────────────────
+
+func (s *SettingsScreen) buildNFCSection() fyne.CanvasObject {
+	s.nfcReaderStatus = widget.NewLabel("Comprobando lectores...")
+	s.nfcReaderStatus.Wrapping = fyne.TextWrapWord
+
+	s.nfcReaderSelect = widget.NewSelect([]string{}, func(selected string) {
+		if s.nfcSelectBusy {
+			return
+		}
+		nfcSetSelectedReader(selected)
+		s.nfcReaderStatus.SetText("Lector activo: " + selected)
+		if s.onNFCStatus != nil {
+			s.onNFCStatus(selected)
+		}
+	})
+	s.nfcReaderSelect.Hide()
+
+	hint := widget.NewLabel(
+		"Si hay varios lectores conectados al PC, elige cuál usar. La preferencia se guarda automáticamente.",
+	)
+	hint.Wrapping = fyne.TextWrapWord
+
+	s.refreshNFCSection(nfcGetAvailableReaders())
+
+	return widget.NewCard("📡  Lector NFC", "", container.NewVBox(
+		s.nfcReaderStatus,
+		s.nfcReaderSelect,
+		hint,
+	))
+}
+
+func (s *SettingsScreen) refreshNFCSection(readers []string) {
+	if s.nfcReaderStatus == nil || s.nfcReaderSelect == nil {
+		return // Config aún no construida (p. ej. durante arranque)
+	}
+	active := nfcGetCurrentReader()
+	switch len(readers) {
+	case 0:
+		s.nfcReaderSelect.Hide()
+		s.nfcReaderStatus.SetText("Sin lectores NFC detectados.")
+	case 1:
+		s.nfcReaderSelect.Hide()
+		s.nfcReaderStatus.SetText("Lector activo: " + readers[0])
+	default:
+		s.nfcReaderSelect.Show()
+		infos := nfcGetAvailableReaderInfos()
+		selectedID := nfcResolveReaderID(infos, nfcGetSelectedReader())
+		selectedLabel := readers[0]
+		if r, ok := nfcFindReaderByID(infos, selectedID); ok {
+			selectedLabel = r.Label
+		}
+		s.nfcSelectBusy = true
+		s.nfcReaderSelect.SetOptions(readers)
+		s.nfcReaderSelect.SetSelected(selectedLabel)
+		s.nfcSelectBusy = false
+		if active != "" {
+			s.nfcReaderStatus.SetText("Lector activo: " + active)
+		} else {
+			s.nfcReaderStatus.SetText("Selecciona el lector a usar:")
+		}
+	}
 }
 
 // ── Device info section ───────────────────────────────────────────────────────

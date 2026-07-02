@@ -59,7 +59,7 @@ type MainWindow struct {
 	navBtns     map[string]*widget.Button
 	screenCache map[string]fyne.CanvasObject // built once, reused
 
-	// NFC status label (bottom of sidebar)
+	// NFC status (bottom of sidebar)
 	nfcStatusText *canvas.Text
 
 	// Update banner (shown if pendingUpdate != nil)
@@ -97,6 +97,7 @@ func newMainWindow(win fyne.Window, roles []string, deviceName string, capituloN
 		mw.homeScreen.SimulateCard(uid)
 	})
 	mw.settingsScreen = newSettingsScreen(win, onLogout)
+	mw.settingsScreen.setNFCStatusCallback(mw.updateNFCStatus)
 
 	return mw
 }
@@ -137,6 +138,7 @@ func (mw *MainWindow) build() fyne.CanvasObject {
 
 	mw.nfcStatusText = canvas.NewText("Sin lector NFC", colorRed)
 	mw.nfcStatusText.TextSize = 11
+	nfcSetReadersListCallback(mw.onNFCReadersChanged)
 
 	topSidebar := container.NewVBox(
 		append([]fyne.CanvasObject{
@@ -345,7 +347,16 @@ func (mw *MainWindow) registerHomeNFC() {
 		},
 	})
 	// Sync current reader status immediately
-	mw.updateNFCStatus(nfcGetCurrentReader())
+	mw.onNFCReadersChanged(nfcGetAvailableReaders())
+}
+
+func (mw *MainWindow) onNFCReadersChanged(readers []string) {
+	mw.settingsScreen.refreshNFCSection(readers)
+	if len(readers) == 0 {
+		mw.updateNFCStatus("")
+	} else {
+		mw.updateNFCStatus(nfcGetCurrentReader())
+	}
 }
 
 func (mw *MainWindow) updateNFCStatus(reader string) {

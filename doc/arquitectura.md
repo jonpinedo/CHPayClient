@@ -5,7 +5,10 @@ CHPay Client es un terminal de punto de venta (TPV) NFC con dos plataformas:
 | Plataforma | Tecnología | NFC | Red |
 |------------|-----------|-----|-----|
 | Android | Flutter/Dart | Hardware NFC del móvil | OpenZiti SDK (overlay) |
-| Windows Desktop | Go + Fyne v2 | Lectores PC/SC (ACR122U, etc.) | Ziti Desktop Edge (tunnel) |
+| Windows Desktop | Go + Fyne v2 | Lectores PC/SC (ACR122U, etc.) + HID NFC-X | Ziti Desktop Edge (tunnel) |
+
+En Desktop, el subsistema NFC soporta simultáneamente lectores PC/SC estándar y
+el lector propietario HID "NFC-X". El detalle está en [`nfc-lectores.md`](nfc-lectores.md).
 
 ## Comunicación con el Backend
 
@@ -57,7 +60,11 @@ Si un dispositivo no tiene `capitulo_id` asignado (null en `GET /api/auth/me`), 
 │   ├── api.go            Cliente HTTP y structs
 │   ├── auth.go           Flujo de autenticación
 │   ├── config.go         Persistencia de configuración
-│   ├── nfc.go            Lectura NFC via PC/SC
+│   ├── nfc.go            Fachada NFC + bucle de polling
+│   ├── nfc_reader.go     Modelo de lector e IDs estables (PC/SC + HID)
+│   ├── nfc_pcsc.go       Backend PC/SC (winscard)
+│   ├── nfc_hid_windows.go  Backend HID NFC-X (Windows)
+│   ├── nfc_hid_stub.go   Stub HID para plataformas no Windows
 │   ├── update.go         Sistema OTA de actualización
 │   ├── screen_*.go       Pantallas
 │   ├── build.bat         Script de compilación

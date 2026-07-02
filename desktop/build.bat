@@ -2,16 +2,18 @@
 setlocal
 
 :: ── Versión de la aplicación ──────────────────────────────────────────────────
-set VERSION=1.2.1
-set VERSION_CODE=8
+set VERSION=1.2.3
+set VERSION_CODE=10
 
 echo [CHPay] Building CHPay Desktop v%VERSION% (code: %VERSION_CODE%)
 echo.
 
-:: ── Configurar TDM-GCC-64 ─────────────────────────────────────────────────────
-set PATH=C:\TDM-GCC-64\bin;%PATH%
+:: ── Configurar TDM-GCC-64 y Go ────────────────────────────────────────────────
+set PATH=C:\TDM-GCC-64\bin;C:\Program Files\Go\bin;%PATH%
 set CC=C:\TDM-GCC-64\bin\gcc.exe
 set CGO_ENABLED=1
+:: Go 1.26 + TDM-GCC genera .exe inválidos; usar toolchain 1.22.x compatible con CGO.
+set GOTOOLCHAIN=go1.22.12
 
 :: ── Build ─────────────────────────────────────────────────────────────────────
 cd /d "%~dp0"

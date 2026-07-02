@@ -1,40 +1,38 @@
-// nfc.go — NFC polling via PC/SC (winscard.dll) using github.com/ebfe/scard.
+// nfc.go — NFC polling facade: PC/SC + HID backends, shared callbacks.
 //
 // Runs a background goroutine that polls every 300 ms.
 // UID format: uppercase hex without separators, e.g. "ABCDEF12".
 package main
 
 import (
-	"encoding/hex"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/ebfe/scard"
 )
 
-// GET UID APDU (ISO 14443 / MIFARE)
-var getUIDAPDU = []byte{0xFF, 0xCA, 0x00, 0x00, 0x00}
-
 // NFCCallbacks holds the set of callbacks active for the current screen.
 type NFCCallbacks struct {
 	OnCardDetected func(uid string) // called once per new card
 	OnCardRemoved  func()
-	OnReaderChange func(reader string) // empty string = no reader
+	OnReaderChange func(reader string) // display label; empty = no reader
 }
 
 var (
 	nfcCbs   NFCCallbacks
 	nfcCbsMu sync.Mutex
 
-	nfcRunning       bool
-	nfcStopChan      chan struct{}
-	nfcCurrentReader string
-	nfcLastUID       string
-	nfcMu            sync.Mutex
+	nfcRunning             bool
+	nfcStopChan            chan struct{}
+	nfcCurrentReader       string // display label of active reader
+	nfcLastUID             string
+	nfcSelectedReader      string // persisted reader ID (or legacy name)
+	nfcAvailableReaderInfos []nfcReaderInfo
+	nfcReadersListCb       func([]string)
+	nfcReadersListCbMu     sync.Mutex
+	nfcMu                  sync.Mutex
 )
 
-// nfcSetCallbacks replaces the active NFC callback set (goroutine-safe).
 func nfcSetCallbacks(cb NFCCallbacks) {
 	nfcCbsMu.Lock()
 	nfcCbs = cb
@@ -47,26 +45,83 @@ func nfcGetCallbacks() NFCCallbacks {
 	return nfcCbs
 }
 
-// nfcGetCurrentReader returns the name of the currently connected reader.
+func nfcSetReadersListCallback(cb func([]string)) {
+	nfcReadersListCbMu.Lock()
+	nfcReadersListCb = cb
+	nfcReadersListCbMu.Unlock()
+}
+
+func nfcNotifyReadersList(readers []string) {
+	nfcReadersListCbMu.Lock()
+	cb := nfcReadersListCb
+	nfcReadersListCbMu.Unlock()
+	if cb != nil {
+		cb(readers)
+	}
+}
+
 func nfcGetCurrentReader() string {
 	nfcMu.Lock()
 	defer nfcMu.Unlock()
 	return nfcCurrentReader
 }
 
-// nfcStart launches the polling goroutine (idempotent).
+func nfcGetSelectedReader() string {
+	nfcMu.Lock()
+	defer nfcMu.Unlock()
+	return nfcSelectedReader
+}
+
+// nfcGetAvailableReaders returns display labels for the settings dropdown.
+func nfcGetAvailableReaders() []string {
+	nfcMu.Lock()
+	defer nfcMu.Unlock()
+	return nfcReaderLabels(nfcAvailableReaderInfos)
+}
+
+func nfcGetAvailableReaderInfos() []nfcReaderInfo {
+	nfcMu.Lock()
+	defer nfcMu.Unlock()
+	out := make([]nfcReaderInfo, len(nfcAvailableReaderInfos))
+	copy(out, nfcAvailableReaderInfos)
+	return out
+}
+
+// nfcSetSelectedReader persists the reader choice (accepts label or ID).
+func nfcSetSelectedReader(labelOrID string) {
+	nfcMu.Lock()
+	readers := append([]nfcReaderInfo(nil), nfcAvailableReaderInfos...)
+	nfcMu.Unlock()
+
+	id := labelOrID
+	if r, ok := nfcFindReaderByLabel(readers, labelOrID); ok {
+		id = r.ID
+	} else {
+		id = nfcResolveReaderID(readers, labelOrID)
+	}
+
+	nfcMu.Lock()
+	if nfcSelectedReader == id {
+		nfcMu.Unlock()
+		return
+	}
+	nfcSelectedReader = id
+	nfcMu.Unlock()
+	configSetNFCReader(id)
+}
+
 func nfcStart() {
 	nfcMu.Lock()
 	defer nfcMu.Unlock()
 	if nfcRunning {
 		return
 	}
+	nfcSelectedReader = configGetNFCReader()
 	nfcRunning = true
 	nfcStopChan = make(chan struct{})
 	go nfcPollingLoop(nfcStopChan)
 }
 
-// nfcStop signals the polling goroutine to exit.
 func nfcStop() {
 	nfcMu.Lock()
 	defer nfcMu.Unlock()
@@ -78,73 +133,71 @@ func nfcStop() {
 }
 
 func nfcPollingLoop(stop <-chan struct{}) {
-	var cardPresent bool
-	var lastReaderName string
+	var (
+		cardPresent  bool
+		missingCount int
+		lastReaderID string
+		hidSession   *nfcHIDSession
+		pcscCtx      *scard.Context
+	)
 
-	for {
-		select {
-		case <-stop:
-			return
-		default:
+	defer func() {
+		if hidSession != nil {
+			hidSession.Close()
 		}
-
-		ctx, err := scard.EstablishContext()
-		if err != nil {
-			// PC/SC not available — wait and retry
-			time.Sleep(2 * time.Second)
-			continue
+		if pcscCtx != nil {
+			pcscCtx.Release() //nolint:errcheck
 		}
+	}()
 
-		// Inner loop: keep context alive until it errors
-		cardPresent, lastReaderName = nfcInnerLoop(ctx, stop, cardPresent, lastReaderName)
-		ctx.Release() //nolint:errcheck
-
-		// If the stop signal was sent, exit
-		select {
-		case <-stop:
-			return
-		default:
+	closeBackend := func() {
+		if hidSession != nil {
+			hidSession.Close()
+			hidSession = nil
 		}
-
-		time.Sleep(1 * time.Second) // brief pause before re-establishing context
+		if pcscCtx != nil {
+			pcscCtx.Release() //nolint:errcheck
+			pcscCtx = nil
+		}
 	}
-}
 
-func nfcInnerLoop(
-	ctx *scard.Context,
-	stop <-chan struct{},
-	cardPresent bool,
-	lastReaderName string,
-) (bool, string) {
 	for {
 		select {
 		case <-stop:
-			return cardPresent, lastReaderName
+			return
 		default:
 		}
 
-		readers, err := ctx.ListReaders()
-		if err != nil {
-			// Context may have become invalid
-			return cardPresent, lastReaderName
+		readers := nfcEnumerateAllReaders()
+
+		nfcMu.Lock()
+		listChanged := !nfcReadersInfoEqual(nfcAvailableReaderInfos, readers)
+		if listChanged {
+			nfcAvailableReaderInfos = append([]nfcReaderInfo(nil), readers...)
+		}
+		nfcMu.Unlock()
+		if listChanged {
+			nfcNotifyReadersListInfo(readers)
+			nfcMigrateSelectedReaderID(readers)
 		}
 
-		// ── Reader change detection ───────────────────────────────────────────
-		var readerName string
-		if len(readers) > 0 {
-			readerName = readers[0]
-		}
-		if readerName != lastReaderName {
-			lastReaderName = readerName
+		reader := nfcPickReaderInfo(readers)
+
+		if reader.ID != lastReaderID {
+			closeBackend()
+			lastReaderID = reader.ID
+			missingCount = 0
+
+			label := reader.Label
 			nfcMu.Lock()
-			nfcCurrentReader = readerName
+			nfcCurrentReader = label
 			nfcMu.Unlock()
 
 			cb := nfcGetCallbacks()
 			if cb.OnReaderChange != nil {
-				cb.OnReaderChange(readerName)
+				cb.OnReaderChange(label)
 			}
-			if readerName == "" && cardPresent {
+			if reader.ID == "" && cardPresent {
 				cardPresent = false
 				nfcMu.Lock()
 				nfcLastUID = ""
@@ -155,74 +208,102 @@ func nfcInnerLoop(
 			}
 		}
 
-		if readerName == "" {
+		if reader.ID == "" {
 			time.Sleep(1 * time.Second)
 			continue
 		}
 
-		// ── Try to connect and read UID ───────────────────────────────────────
-		card, err := ctx.Connect(readerName, scard.ShareShared, scard.ProtocolAny)
-		if err != nil {
-			// No card in reader
-			if cardPresent {
-				cardPresent = false
-				nfcMu.Lock()
-				nfcLastUID = ""
-				nfcMu.Unlock()
-				cb := nfcGetCallbacks()
-				if cb.OnCardRemoved != nil {
-					cb.OnCardRemoved()
+		var uid string
+		switch reader.Kind {
+		case nfcBackendPCSC:
+			if pcscCtx == nil {
+				ctx, err := scard.EstablishContext()
+				if err != nil {
+					time.Sleep(2 * time.Second)
+					continue
 				}
+				pcscCtx = ctx
 			}
-			time.Sleep(300 * time.Millisecond)
-			continue
+			uid = nfcPCSCReadUID(pcscCtx, reader.PCSCName)
+
+		case nfcBackendHID:
+			if hidSession == nil {
+				sess, err := nfcHIDOpen(reader.HIDPath)
+				if err != nil {
+					time.Sleep(1 * time.Second)
+					continue
+				}
+				hidSession = sess
+			}
+			uid = hidSession.ReadUID()
 		}
 
-		uid := readUID(card)
-		card.Disconnect(scard.LeaveCard) //nolint:errcheck
-
-		if uid != "" {
-			nfcMu.Lock()
-			prevUID := nfcLastUID
-			nfcMu.Unlock()
-
-			if !cardPresent || uid != prevUID {
-				cardPresent = true
-				nfcMu.Lock()
-				nfcLastUID = uid
-				nfcMu.Unlock()
-				cb := nfcGetCallbacks()
-				if cb.OnCardDetected != nil {
-					cb.OnCardDetected(uid)
-				}
-			}
-		} else if cardPresent {
-			cardPresent = false
-			nfcMu.Lock()
-			nfcLastUID = ""
-			nfcMu.Unlock()
-			cb := nfcGetCallbacks()
-			if cb.OnCardRemoved != nil {
-				cb.OnCardRemoved()
-			}
-		}
+		cardPresent, missingCount = nfcUpdateCardState(
+			reader.Kind, cardPresent, missingCount, uid,
+		)
 
 		time.Sleep(300 * time.Millisecond)
 	}
 }
 
-// readUID transmits the GET UID APDU and returns the UID as uppercase hex.
-func readUID(card *scard.Card) string {
-	resp, err := card.Transmit(getUIDAPDU)
-	if err != nil || len(resp) < 3 {
-		return ""
+func nfcUpdateCardState(
+	kind nfcBackendKind,
+	cardPresent bool,
+	missingCount int,
+	uid string,
+) (bool, int) {
+	if uid != "" {
+		missingCount = 0
+		nfcMu.Lock()
+		prevUID := nfcLastUID
+		nfcMu.Unlock()
+
+		if !cardPresent || uid != prevUID {
+			cardPresent = true
+			nfcMu.Lock()
+			nfcLastUID = uid
+			nfcMu.Unlock()
+			cb := nfcGetCallbacks()
+			if cb.OnCardDetected != nil {
+				cb.OnCardDetected(uid)
+			}
+		}
+		return cardPresent, missingCount
 	}
-	// Response: [UID bytes...] [SW1] [SW2]
-	sw1 := resp[len(resp)-2]
-	sw2 := resp[len(resp)-1]
-	if sw1 != 0x90 || sw2 != 0x00 {
-		return ""
+
+	// No card this poll.
+	if !cardPresent {
+		return false, 0
 	}
-	uidBytes := resp[:len(resp)-2]
-	return strings.ToUpper(hex.EncodeToString(uidBytes))
+
+	if kind == nfcBackendHID {
+		missingCount++
+		if missingCount < nfcHIDMissingThreshold {
+			return cardPresent, missingCount
+		}
+	}
+
+	cardPresent = false
+	missingCount = 0
+	nfcMu.Lock()
+	nfcLastUID = ""
+	nfcMu.Unlock()
+	cb := nfcGetCallbacks()
+	if cb.OnCardRemoved != nil {
+		cb.OnCardRemoved()
+	}
+	return cardPresent, missingCount
+}
+
+// nfcMigrateSelectedReaderID upgrades legacy config values (plain PC/SC names) to stable IDs.
+func nfcMigrateSelectedReaderID(readers []nfcReaderInfo) {
+	stored := nfcGetSelectedReader()
+	resolved := nfcResolveReaderID(readers, stored)
+	if resolved == "" || resolved == stored {
+		return
+	}
+	nfcMu.Lock()
+	nfcSelectedReader = resolved
+	nfcMu.Unlock()
+	configSetNFCReader(resolved)
 }
