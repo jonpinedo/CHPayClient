@@ -164,16 +164,32 @@ func (s *RegistrationScreen) doRequestRegistration() {
 
 	go func() {
 		err := authRequestRegistration(name, capID)
+		if err != nil {
+			// El dispositivo puede existir ya en esta API (device_id estable,
+			// p. ej. tras cambiar la URL de la API). En ese caso intentamos
+			// autorizar directamente: si ya está aprobado, obtenemos el token
+			// y reescribimos config.json; si sigue pendiente, informamos.
+			if authAuthorize(name) == nil {
+				s.registerBtn.Enable()
+				s.registerBtn.SetText("📝  Solicitar Registro")
+				s.statusLabel.SetText("✅ Dispositivo ya registrado. Autorizado correctamente.")
+				go func() {
+					time.Sleep(800 * time.Millisecond)
+					s.onAuthorized()
+				}()
+				return
+			}
+			s.registerBtn.Enable()
+			s.registerBtn.SetText("📝  Solicitar Registro")
+			s.statusLabel.SetText("❌ " + err.Error())
+			return
+		}
 		s.registerBtn.Enable()
 		s.registerBtn.SetText("📝  Solicitar Registro")
-		if err != nil {
-			s.statusLabel.SetText("❌ " + err.Error())
-		} else {
-			s.statusLabel.SetText(
-				"✅ Solicitud enviada. El administrador debe aprobar el dispositivo.\n" +
-					"Cuando sea aprobado, pulsa 'Autorizar'.",
-			)
-		}
+		s.statusLabel.SetText(
+			"✅ Solicitud enviada. El administrador debe aprobar el dispositivo.\n" +
+				"Cuando sea aprobado, pulsa 'Autorizar'.",
+		)
 	}()
 }
 

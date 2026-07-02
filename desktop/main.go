@@ -87,12 +87,23 @@ func (c *AppController) showMainApp() {
 	if err != nil {
 		ae, ok := err.(*AuthError)
 		if ok && ae.IsAuthError() {
-			authLogout()
-			c.showRegistration()
+			// El token guardado no es válido contra la API actual (típico al
+			// cambiar la URL de la API: el device_id es estable pero el token
+			// pertenece a otro servidor). Intentar re-autorizar contra la API
+			// actual —si el dispositivo ya está aprobado allí, /authorize
+			// devuelve el token y reescribe config.json— antes de descartar
+			// credenciales y mandar al registro.
+			if authTryRecover() {
+				bearer = apiGetBearer()
+			} else {
+				authLogout()
+				c.showRegistration()
+				return
+			}
+		} else {
+			c.showConnectionError(err.Error(), c.showMainApp)
 			return
 		}
-		c.showConnectionError(err.Error(), c.showMainApp)
-		return
 	}
 
 	// ─── Check de actualización (no bloqueante) ───────────────────────────────
