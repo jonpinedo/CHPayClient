@@ -173,7 +173,7 @@ func (s *RecargaScreen) build() fyne.CanvasObject {
 	)
 
 	// ── Right panel: historial ────────────────────────────────────────────────
-	s.historial = newHistorialWidget("📋  Historial de recargas")
+	s.historial = newHistorialWidget("📋  Historial de recargas", "RECARGA")
 	if uid != "" {
 		s.historial.Load(uid)
 	}

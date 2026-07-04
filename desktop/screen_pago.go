@@ -183,21 +183,22 @@ func (s *PagoScreen) build() fyne.CanvasObject {
 		container.NewCenter(s.nfcCancelBtn),
 	)
 
-	// ── Left panel: calculator or NFC wait + historial below ──────────────────
+	// ── Left panel: calculator arriba (altura natural), historial abajo expandible ──
 	leftContent := container.NewStack(s.calcContainer, s.nfcContainer)
 	s.nfcContainer.Hide()
 
-	// Historial compacto debajo del teclado
-	s.historial = newHistorialWidget("📋 Últimos")
+	s.historial = newHistorialWidget("📋 Últimos cobros", "COBRO")
 	if uid != "" {
 		s.historial.Load(uid)
 	}
 
 	leftPanel := container.NewBorder(
-		container.NewVBox(cardHeader, s.descEntry, s.opsDisplay, totalRow, s.msgLabel),
-		s.historial.CanvasObject(),
-		nil, nil,
-		leftContent,
+		container.NewVBox(
+			cardHeader, s.descEntry, s.opsDisplay, totalRow, s.msgLabel,
+			leftContent,
+		),
+		nil, nil, nil,
+		container.NewPadded(s.historial.CanvasObject()),
 	)
 
 	// ── Right panel: price lists or fallback to empty ─────────────────────────

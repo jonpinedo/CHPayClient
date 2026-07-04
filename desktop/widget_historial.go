@@ -16,12 +16,13 @@ import (
 
 // HistorialWidget shows a scrollable list of recent transactions.
 type HistorialWidget struct {
-	vbox   *fyne.Container
-	scroll *container.Scroll
-	root   fyne.CanvasObject
+	vbox       *fyne.Container
+	scroll     *container.Scroll
+	root       fyne.CanvasObject
+	filterTipo string // "" = todas; "COBRO" o "RECARGA" para filtrar
 }
 
-func newHistorialWidget(title string) *HistorialWidget {
+func newHistorialWidget(title string, filterTipo string) *HistorialWidget {
 	vbox := container.NewVBox()
 	scroll := container.NewScroll(vbox)
 
@@ -35,7 +36,7 @@ func newHistorialWidget(title string) *HistorialWidget {
 		scroll,
 	)
 
-	h := &HistorialWidget{vbox: vbox, scroll: scroll, root: root}
+	h := &HistorialWidget{vbox: vbox, scroll: scroll, root: root, filterTipo: filterTipo}
 	h.showEmpty("Sin datos")
 	return h
 }
@@ -48,18 +49,35 @@ func (h *HistorialWidget) CanvasObject() fyne.CanvasObject { return h.root }
 func (h *HistorialWidget) Load(uid string) {
 	h.showEmpty("Cargando...")
 	go func() {
-		result, err := apiGetHistorial(uid, 15)
+		limite := 15
+		if h.filterTipo != "" {
+			limite = 50 // pedir más para poder filtrar por tipo sin quedarnos cortos
+		}
+		result, err := apiGetHistorial(uid, limite)
 		if err != nil {
 			h.showEmpty("Error al cargar")
 			return
 		}
-		if len(result.Transacciones) == 0 {
-			h.showEmpty("Sin operaciones")
-			return
-		}
-		objects := make([]fyne.CanvasObject, 0, len(result.Transacciones))
+		objects := make([]fyne.CanvasObject, 0, 15)
 		for _, t := range result.Transacciones {
+			if h.filterTipo != "" && t.Tipo != h.filterTipo {
+				continue
+			}
 			objects = append(objects, buildHistorialRow(t))
+			if len(objects) >= 15 {
+				break
+			}
+		}
+		if len(objects) == 0 {
+			switch h.filterTipo {
+			case "COBRO":
+				h.showEmpty("Sin cobros")
+			case "RECARGA":
+				h.showEmpty("Sin recargas")
+			default:
+				h.showEmpty("Sin operaciones")
+			}
+			return
 		}
 		h.vbox.Objects = objects
 		h.vbox.Refresh()

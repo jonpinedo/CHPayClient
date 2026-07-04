@@ -152,7 +152,7 @@ func (h *HomeScreen) build() fyne.CanvasObject {
 	}
 
 	// ── Historial ─────────────────────────────────────────────────────────────
-	h.historial = newHistorialWidget("📋  Últimas operaciones")
+	h.historial = newHistorialWidget("📋  Últimas operaciones", "")
 
 	return container.NewBorder(
 		container.NewVBox(
