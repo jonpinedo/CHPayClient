@@ -15,6 +15,10 @@ Thumbs.db
 secrets.local.ps1
 .env
 
+# Certificado de firma (solo el .cer público se versiona)
+certs/*.pfx
+certs/*.p12
+
 # Herramientas/artefactos de diagnóstico NFC (uso local, no runtime)
 tools/
 usbpcap/

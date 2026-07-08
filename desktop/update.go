@@ -22,6 +22,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"fyne.io/fyne/v2"
 )
 
 // UpdateInfo representa la respuesta del servidor de versiones.
@@ -151,8 +153,11 @@ func downloadUpdate(bearer string, onProgress func(percent int, downloaded, tota
 }
 
 // applyUpdate lanza el exe descargado pasándole la ruta del exe actual para que lo reemplace,
-// y cierra la aplicación actual.
-func applyUpdate(downloadedExe string) error {
+// y cierra la aplicación actual. Comprueba/instala el certificado de confianza antes.
+func applyUpdate(downloadedExe string, parent fyne.Window) error {
+	if err := trustEnsureInstalled(parent); err != nil {
+		return err
+	}
 	// Verificar que el fichero existe
 	if _, err := os.Stat(downloadedExe); err != nil {
 		return fmt.Errorf("fichero no encontrado: %w", err)

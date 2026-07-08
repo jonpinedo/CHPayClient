@@ -45,6 +45,9 @@ $VersionCode = [int]$Matches[1]
 Write-Host "Versión: $Version ($VersionCode)" -ForegroundColor Cyan
 
 # ─── Build ────────────────────────────────────────────────────────────────────
+if (-not (Test-Path ".\certs\chpay-signing.cer") -or (Get-Item ".\certs\chpay-signing.cer").Length -lt 10) {
+    Write-Warning "Falta certs\chpay-signing.cer valido. Ejecuta: desktop\scripts\create-signing-cert.ps1"
+}
 Write-Host "`nBuilding chpay.exe..." -ForegroundColor Cyan
 & .\build.bat
 if ($LASTEXITCODE -ne 0) {
@@ -60,6 +63,14 @@ if (-not (Test-Path $ExePath)) {
 
 $ExeSize = (Get-Item $ExePath).Length / 1MB
 Write-Host "EXE generado: $([Math]::Round($ExeSize, 1)) MB" -ForegroundColor Green
+
+# ─── Firmar exe (Authenticode) ────────────────────────────────────────────────
+Write-Host "`nFirmando chpay.exe..." -ForegroundColor Cyan
+& "$PSScriptRoot\scripts\sign-exe.ps1" -ExePath $ExePath
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Firma del exe fallo. Configura CHPAY_SIGN_PFX en secrets.local.ps1 (ver desktop/certs/README.md)"
+    exit 1
+}
 
 # ─── Publicar al servidor ─────────────────────────────────────────────────────
 if (-not $ApiKey) {

@@ -41,12 +41,22 @@ type AppController struct {
 }
 
 func main() {
+	// ── Modo instalación de certificado (elevado, sin UI) ─────────────────────
+	if handleTrustCertInstallMode() {
+		return
+	}
+
 	// ── Modo upgrade: si este exe fue descargado para reemplazar el anterior ──
 	if handleUpgradeMode() {
 		return
 	}
 
 	configLoad()
+
+	if err := trustEnsureInstalledNative(); err != nil {
+		trustShowNativeError(err)
+		return
+	}
 
 	fyneApp = app.New()
 	fyneApp.SetIcon(AppIcon)
@@ -58,6 +68,15 @@ func main() {
 	ctrl.runApp()
 
 	win.ShowAndRun()
+}
+
+func showStartupError(win fyne.Window, title, message string) {
+	win.SetTitle("CHPay Desktop")
+	titleLbl := widget.NewLabelWithStyle(title, fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
+	msgLbl := widget.NewLabel(message)
+	msgLbl.Wrapping = fyne.TextWrapWord
+	msgLbl.Alignment = fyne.TextAlignCenter
+	win.SetContent(container.NewCenter(container.NewVBox(titleLbl, widget.NewLabel(""), msgLbl)))
 }
 
 func (c *AppController) runApp() {
@@ -263,7 +282,7 @@ func (c *AppController) showMandatoryUpdate(update *UpdateInfo, bearer string) {
 			statusLbl.SetText("✅ Descarga completada. Instalando...")
 			progressBar.SetValue(1.0)
 
-			if err := applyUpdate(exePath); err != nil {
+			if err := applyUpdate(exePath, c.win); err != nil {
 				statusLbl.SetText("❌ Error al instalar: " + err.Error())
 				updateBtn.Enable()
 				updateBtn.SetText("⬇️  Reintentar")

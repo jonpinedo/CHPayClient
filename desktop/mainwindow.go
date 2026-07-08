@@ -255,7 +255,7 @@ func (mw *MainWindow) startOptionalUpdate() {
 		}
 
 		progressText.SetText("Instalando...")
-		if err := applyUpdate(exePath); err != nil {
+		if err := applyUpdate(exePath, mw.win); err != nil {
 			dlg.Hide()
 			errDlg := dialog.NewError(err, mw.win)
 			errDlg.Show()

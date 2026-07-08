@@ -63,13 +63,36 @@ Requisitos:
   Ejemplo de ese fichero:
   ```powershell
   $env:CHPAY_PUBLISH_KEY = "tu-api-key"
+  $env:CHPAY_SIGN_PFX = "T:\...\desktop\certs\chpay-signing.pfx"
+  $env:CHPAY_SIGN_PFX_PASS = "contraseña-del-pfx"
   ```
 - Go + TDM-GCC-64 configurados
+- Windows SDK (`signtool.exe`) para firmar el exe — instalar si falta:
+  ```powershell
+  winget install --id Microsoft.WindowsSDK.10.0.22621 -e
+  ```
+  Componente: **Windows SDK Signing Tools for Desktop Apps**
+- Certificado de firma: generar con `desktop/scripts/create-signing-cert.ps1`
+  (ver `desktop/certs/README.md`)
 
 El script:
 1. Lee la versión de `build.bat`
 2. Compila con `build.bat`
-3. Sube el exe a `POST /api/update/publish` con metadata
+3. Firma con `desktop/scripts/sign-exe.ps1` (Authenticode + timestamp)
+4. Sube el exe a `POST /api/update/publish` con metadata
+
+### Prueba local antes de publicar
+
+`build.bat` no firma el exe. Para validar build + firma + certificado embebido sin subir al servidor:
+
+```powershell
+cd desktop
+.\scripts\test-sign-local.ps1
+.\chpay.exe
+```
+
+Checklist: firma `Valid` → 1ª ejecución pide UAC (certificado de confianza) → 2ª ejecución sin UAC.
+Detalle en `desktop/certs/README.md` y `doc/pendientes.md`.
 
 ## Android (Flutter)
 
