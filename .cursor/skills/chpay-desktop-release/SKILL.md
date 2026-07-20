@@ -31,12 +31,13 @@ Si al pedir publicar no hay cambios en ninguna plataforma, preguntar qué quiere
 | Qué | Desktop | Android |
 |-----|---------|---------|
 | Versión | `desktop/build.bat` (`VERSION`, `VERSION_CODE`) | `pubspec.yaml` (`version: X.Y.Z+N`) |
-| Build | `desktop/build.bat` → `chpay.exe` | `flutter build apk --release` |
+| Build | `desktop/build.bat` → `chpay.exe` | `flutter build apk --release` **siempre desde copia local** (ver abajo) |
 | Firma | Authenticode (`sign-exe.ps1`) | N/A |
-| Prueba local | `desktop/scripts/test-sign-local.ps1` | `flutter build apk --release` |
-| Publish OTA | `desktop/publish_desktop.ps1` | `.\publish_apk.ps1` (raíz) |
+| Prueba local | `desktop/scripts/test-sign-local.ps1` | build APK en disco local |
+| Publish OTA | `desktop/publish_desktop.ps1` | Samba + `POST /api/update/publish` (tras build local) |
 | Secretos | `secrets.local.ps1` en la raíz (`CHPAY_PUBLISH_KEY`, `CHPAY_SIGN_PFX`, `CHPAY_SIGN_PFX_PASS`) | misma `CHPAY_PUBLISH_KEY` |
 | Docs | `doc/actualizaciones.md`, `desktop/certs/README.md` | `doc/actualizaciones.md` |
+| Toolchain | Go + TDM-GCC | Flutter en `C:\src\flutter`, JDK 17, Android SDK en `C:\Android\sdk` |
 
 `build.bat` **no firma** el exe. `publish_desktop.ps1` compila, firma y sube.
 
@@ -48,10 +49,10 @@ Si al pedir publicar no hay cambios en ninguna plataforma, preguntar qué quiere
 Release Progress:
 - [ ] 1. Detectar plataformas a publicar (petición o archivos tocados)
 - [ ] 2. Bump de versión en cada plataforma afectada
-- [ ] 3. Prueba local (Desktop: test-sign-local; Android: build apk ok)
+- [ ] 3. Prueba/build (Desktop: test-sign-local; Android: sync a `C:\build\CHPayClient` + `flutter build apk`)
 - [ ] 4. Commit (siempre, porque se va a publicar)
 - [ ] 5. Push (siempre, porque se va a publicar)
-- [ ] 6. publish_desktop.ps1 y/o publish_apk.ps1 con -Changelog
+- [ ] 6. publish_desktop.ps1 y/o publicar APK (Samba + API; no `publish_apk.ps1` desde el share)
 ```
 
 ### Detectar plataformas por cambios
@@ -102,12 +103,60 @@ Por defecto **no mandatory**. Firma falla si falta PFX en secrets.
 
 ### Publicar Android
 
-```powershell
-# desde la raíz del repo
-.\publish_apk.ps1 -Changelog "Descripción para el usuario."
+#### Importante: no compilar en el share de red
+
+El repo vive en un share (`T:\CHPay\...` / UNC). **`flutter build` falla ahí** con:
+
+```text
+ERROR_ACCESS_DENIED ... trying to create a symlink ... windows\flutter\ephemeral\.plugin_symlinks\
 ```
 
-Requisitos: Flutter en PATH, Samba `\\truenas\compartido\apk-releases`, `CHPAY_PUBLISH_KEY`.
+Los shares no permiten symlinks que Flutter necesita. **Siempre** sincronizar a disco local, compilar ahí, y luego copiar/publicar el APK.
+
+#### Workflow Android (obligatorio)
+
+```powershell
+$env:JAVA_HOME = 'C:\Program Files\Eclipse Adoptium\jdk-17.0.19.10-hotspot'  # ajustar si cambia
+$env:ANDROID_HOME = 'C:\Android\sdk'
+$env:ANDROID_SDK_ROOT = $env:ANDROID_HOME
+$env:Path = "C:\src\flutter\bin;$env:JAVA_HOME\bin;$env:ANDROID_HOME\platform-tools;$env:Path"
+
+$src = 'T:\CHPay\CHPayClient'   # raíz del repo (share)
+$local = 'C:\build\CHPayClient' # copia de trabajo en disco local
+
+# 1) Sync a local (excluir artefactos pesados)
+if (Test-Path $local) { Remove-Item $local -Recurse -Force }
+robocopy $src $local /MIR /NFL /NDL /NJH /NJS /nc /ns /np `
+  /XD .git build .dart_tool windows\flutter\ephemeral android\.gradle android\app\build `
+  /XF *.exe *.apk
+# robocopy: códigos 0–7 = OK
+
+# 2) Build en local
+Set-Location $local
+flutter pub get
+flutter build apk --release
+# APK: $local\build\app\outputs\flutter-apk\app-release.apk
+
+# 3) Publicar (Samba + API). Cargar secrets desde el repo en el share:
+. "$src\secrets.local.ps1"
+# Opción A — si el share permite ejecutar el script y solo falla el build:
+#   copiar el APK a $src\build\... no es necesario; publicar a mano como abajo.
+# Opción B — publicar igual que publish_apk.ps1 (Samba + multipart):
+$VersionName = 'X.Y.Z'   # de pubspec
+$VersionCode = N
+$apk = "$local\build\app\outputs\flutter-apk\app-release.apk"
+$SambaPath = '\\truenas\compartido\apk-releases'
+$ApkFilename = "chpay_v${VersionName}_${VersionCode}.apk"
+Copy-Item $apk (Join-Path $SambaPath $ApkFilename) -Force
+Copy-Item $apk (Join-Path $SambaPath 'chpay.apk') -Force
+# Luego POST multipart a http://192.168.1.144:8080/api/update/publish
+# (platform=android, versionCode, versionName, mandatory, changelog, apk)
+# con Authorization: Bearer $env:CHPAY_PUBLISH_KEY
+```
+
+`.\publish_apk.ps1` en la raíz del share **no sirve tal cual** mientras el cwd sea el share: el `flutter build` interno fallará por symlinks. Usar el flujo de copia local anterior (o adaptar el script para aceptar `-BuildDir` / APK ya generado).
+
+Requisitos: Flutter (`C:\src\flutter`), JDK 17, Android SDK (`C:\Android\sdk`), Samba `\\truenas\compartido\apk-releases`, `CHPAY_PUBLISH_KEY`.
 
 ---
 
@@ -141,3 +190,6 @@ Commitear `desktop/certs/chpay-signing.cer` (público). **Nunca** el `.pfx`.
 | `NotSigned` tras build.bat | Normal; ejecutar `test-sign-local.ps1` o publish |
 | Thumbprint no coincide | Regenerar `.cer` y recompilar |
 | Samba APK no disponible | Montar `\\truenas\compartido\apk-releases` |
+| `ERROR_ACCESS_DENIED` symlink al build Flutter | Compilar en copia local (`C:\build\CHPayClient`), no en `T:\` / UNC |
+| `flutter` no reconocido | PATH: `C:\src\flutter\bin` (nueva terminal si hace falta) |
+| Android toolchain incompleto | SDK en `C:\Android\sdk`; `JAVA_HOME` → Temurin 17; `flutter doctor` |
