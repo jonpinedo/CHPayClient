@@ -265,7 +265,7 @@ class _AsociarTarjetaScreenState extends State<AsociarTarjetaScreen> {
   Future<void> _cargarSocios() async {
     setState(() => _isLoadingSocios = true);
     try {
-      final socios = await APIService.listarSocios();
+      final socios = await APIService.listarSocios(sinTarjeta: true);
       setState(() {
         _socios = socios;
         _isLoadingSocios = false;

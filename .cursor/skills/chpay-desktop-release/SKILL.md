@@ -1,39 +1,117 @@
 ---
-name: chpay-desktop-release
-description: Publica una nueva versión de CHPay Desktop (bump de versión, build, firma Authenticode, commit, push, publish OTA). Usar cuando el usuario pida subir versión, publicar desktop, hacer release, bump, publish_desktop, firmar exe, o commitear y publicar cambios de desktop.
+name: chpay-release
+description: Publica versiones de CHPay (Desktop y/o Android): bump, build, firma, commit, push y publish OTA. Usar cuando el usuario pida publicar, release, bump, publish_desktop, publish_apk, subir versión, o publicar desktop/android.
 ---
 
-# CHPay Desktop Release
+# CHPay Release (Desktop + Android)
+
+## Alcance según la petición
+
+| Petición del usuario | Qué publicar |
+|----------------------|--------------|
+| "publicar" / "release" **sin** especificar plataforma | Las plataformas **donde haya cambios** en el working tree / commits pendientes (`desktop/` → Desktop; `lib/`, `android/`, `pubspec.yaml` → Android; ambos si hay en los dos) |
+| "publicar desktop" / `publish_desktop` | Solo Desktop |
+| "publicar android" / `publish_apk` | Solo Android |
+| "compilar" / "build" **sin** pedir publicar | Solo build local. **No** commit, **no** push, **no** publish |
+
+Si al pedir publicar no hay cambios en ninguna plataforma, preguntar qué quiere publicar.
+
+## Regla commit / push
+
+- **Publicar** implica producción → **siempre** commit + push **antes** del publish OTA (incluido el bump de versión).
+- **Solo compilar** → no commit, no push, no publish.
+- PowerShell: mensajes de commit con múltiples `-m`, no heredoc bash.
+
+**No commitear:** `secrets.local.ps1`, `.pfx`, `*.exe`, `*.apk`, `tools/`, `usbpcap/`, `build/`.
+
+---
 
 ## Resumen del sistema
 
-| Qué | Dónde |
-|-----|-------|
-| Versión (`VERSION`, `VERSION_CODE`) | `desktop/build.bat` |
-| Build | `desktop/build.bat` → `desktop/chpay.exe` (embebe `certs/chpay-signing.cer`) |
-| Firma Authenticode | `desktop/scripts/sign-exe.ps1` (solo en publish o prueba local) |
-| Prueba local build+firma | `desktop/scripts/test-sign-local.ps1` |
-| Publicación OTA | `desktop/publish_desktop.ps1` (build + firma + upload) |
-| Certificado | `desktop/certs/chpay-signing.cer` (público) + `.pfx` (secrets) |
-| Secretos | `secrets.local.ps1` en la **raíz** (`CHPAY_PUBLISH_KEY`, `CHPAY_SIGN_PFX`, `CHPAY_SIGN_PFX_PASS`) |
-| Confianza en TPV | `trust_windows.go` — UAC automático al arrancar / antes de OTA |
-| Docs | `doc/actualizaciones.md`, `doc/pendientes.md`, `desktop/certs/README.md` |
+| Qué | Desktop | Android |
+|-----|---------|---------|
+| Versión | `desktop/build.bat` (`VERSION`, `VERSION_CODE`) | `pubspec.yaml` (`version: X.Y.Z+N`) |
+| Build | `desktop/build.bat` → `chpay.exe` | `flutter build apk --release` |
+| Firma | Authenticode (`sign-exe.ps1`) | N/A |
+| Prueba local | `desktop/scripts/test-sign-local.ps1` | `flutter build apk --release` |
+| Publish OTA | `desktop/publish_desktop.ps1` | `.\publish_apk.ps1` (raíz) |
+| Secretos | `secrets.local.ps1` en la raíz (`CHPAY_PUBLISH_KEY`, `CHPAY_SIGN_PFX`, `CHPAY_SIGN_PFX_PASS`) | misma `CHPAY_PUBLISH_KEY` |
+| Docs | `doc/actualizaciones.md`, `desktop/certs/README.md` | `doc/actualizaciones.md` |
 
 `build.bat` **no firma** el exe. `publish_desktop.ps1` compila, firma y sube.
 
-## Workflow estándar
+---
+
+## Workflow al publicar
 
 ```
 Release Progress:
-- [ ] 1. Cambios de código listos
-- [ ] 2. Subir VERSION y VERSION_CODE en build.bat
-- [ ] 3. Prueba local: test-sign-local.ps1 + ejecutar chpay.exe (UAC 1ª vez)
-- [ ] 4. Commit (solo si el usuario lo pide)
-- [ ] 5. Push (solo si el usuario lo pide)
-- [ ] 6. publish_desktop.ps1 -Changelog "..."
+- [ ] 1. Detectar plataformas a publicar (petición o archivos tocados)
+- [ ] 2. Bump de versión en cada plataforma afectada
+- [ ] 3. Prueba local (Desktop: test-sign-local; Android: build apk ok)
+- [ ] 4. Commit (siempre, porque se va a publicar)
+- [ ] 5. Push (siempre, porque se va a publicar)
+- [ ] 6. publish_desktop.ps1 y/o publish_apk.ps1 con -Changelog
 ```
 
-### Certificado (setup inicial, una vez)
+### Detectar plataformas por cambios
+
+Considerar Desktop si hay cambios bajo `desktop/` (código o `build.bat`).  
+Considerar Android si hay cambios bajo `lib/`, `android/`, o en `pubspec.yaml`.  
+Ignorar solo-docs / solo-skill salvo que el usuario pida publicar igual.
+
+### Bump de versión
+
+**Desktop** — editar `desktop/build.bat`:
+```bat
+set VERSION=X.Y.Z
+set VERSION_CODE=N
+```
+(+1 a `VERSION_CODE` siempre; subir patch de `VERSION` salvo indicación contraria).
+
+**Android** — editar `pubspec.yaml`:
+```yaml
+version: X.Y.Z+N   # versionName+versionCode
+```
+(+1 a `N` siempre).
+
+### Prueba local Desktop (antes de publish)
+
+```powershell
+cd desktop
+.\scripts\test-sign-local.ps1
+.\chpay.exe   # 1ª vez: diálogo confianza + UAC; 2ª vez: sin UAC
+```
+
+### Commit + push (obligatorio antes de publish)
+
+```powershell
+git add <archivos relevantes>
+git commit -m "tipo: resumen" -m "Detalle opcional."
+git push -u origin HEAD
+```
+
+### Publicar Desktop
+
+```powershell
+cd desktop
+.\publish_desktop.ps1 -Changelog "Descripción para el usuario."
+```
+
+Por defecto **no mandatory**. Firma falla si falta PFX en secrets.
+
+### Publicar Android
+
+```powershell
+# desde la raíz del repo
+.\publish_apk.ps1 -Changelog "Descripción para el usuario."
+```
+
+Requisitos: Flutter en PATH, Samba `\\truenas\compartido\apk-releases`, `CHPAY_PUBLISH_KEY`.
+
+---
+
+## Certificado Desktop (setup inicial, una vez)
 
 ```powershell
 cd desktop\scripts
@@ -50,32 +128,7 @@ $env:CHPAY_SIGN_PFX_PASS = "..."
 
 Commitear `desktop/certs/chpay-signing.cer` (público). **Nunca** el `.pfx`.
 
-### Prueba local (obligatoria antes de publicar)
-
-```powershell
-cd desktop
-.\scripts\test-sign-local.ps1
-.\chpay.exe   # 1ª vez: diálogo confianza + UAC; 2ª vez: sin UAC
-```
-
-### Subir versión
-
-Editar `desktop/build.bat`: `VERSION` y `VERSION_CODE` (+1 code siempre).
-
-### Publicar
-
-```powershell
-cd desktop
-.\publish_desktop.ps1 -Changelog "Descripción para el usuario."
-```
-
-Por defecto **no mandatory**. Firma falla si falta PFX en secrets.
-
-### Commit / push
-
-Solo si el usuario lo pide explícitamente. PowerShell: múltiples `-m`, no heredoc.
-
-**No commitear:** `secrets.local.ps1`, `.pfx`, `*.exe`, `tools/`, `usbpcap/`.
+---
 
 ## Troubleshooting
 
@@ -87,3 +140,4 @@ Solo si el usuario lo pide explícitamente. PowerShell: múltiples `-m`, no here
 | SAC bloquea exe | Falta cert en Root → aceptar UAC al arrancar |
 | `NotSigned` tras build.bat | Normal; ejecutar `test-sign-local.ps1` o publish |
 | Thumbprint no coincide | Regenerar `.cer` y recompilar |
+| Samba APK no disponible | Montar `\\truenas\compartido\apk-releases` |

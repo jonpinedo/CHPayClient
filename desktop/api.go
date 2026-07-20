@@ -285,8 +285,14 @@ func apiGetHistorial(uid string, limite int) (*HistorialResp, error) {
 
 // ── Admin ─────────────────────────────────────────────────────────────────────
 
-func apiListarSocios() ([]Socio, error) {
-	raw, code, err := doGetRaw("/api/admin/socios")
+// apiListarSocios lista socios. Con sinTarjeta=true solo devuelve los que
+// aún no tienen tarjeta NFC asociada (?sin_tarjeta=true).
+func apiListarSocios(sinTarjeta bool) ([]Socio, error) {
+	path := "/api/admin/socios"
+	if sinTarjeta {
+		path += "?sin_tarjeta=true"
+	}
+	raw, code, err := doGetRaw(path)
 	if err != nil {
 		return nil, err
 	}

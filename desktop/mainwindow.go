@@ -87,16 +87,13 @@ func newMainWindow(win fyne.Window, roles []string, deviceName string, capituloN
 	)
 	mw.pagoScreen = newPagoScreen(win,
 		mw.homeScreen.GetCardInfo,
-		func() { mw.navigate(screenHome) },
+		mw.returnHome,
 	)
 	mw.recargaScreen = newRecargaScreen(win,
 		mw.homeScreen.GetCardInfo,
-		func() { mw.navigate(screenHome) },
+		mw.returnHome,
 	)
-	mw.adminScreen = newAdminScreen(win, func(uid string) {
-		mw.navigate(screenHome)
-		mw.homeScreen.SimulateCard(uid)
-	})
+	mw.adminScreen = newAdminScreen(win, mw.returnHome)
 	mw.settingsScreen = newSettingsScreen(win, onLogout)
 	mw.settingsScreen.setNFCStatusCallback(mw.updateNFCStatus)
 
@@ -262,6 +259,15 @@ func (mw *MainWindow) startOptionalUpdate() {
 		}
 		// Si applyUpdate tiene éxito, la app se cierra
 	}()
+}
+
+// returnHome goes to Inicio. If uid is non-empty, Inicio shows that card
+// (última tarjeta leída en cobro/recarga/asociación).
+func (mw *MainWindow) returnHome(uid string) {
+	if uid != "" {
+		mw.homeScreen.PrimeCardUID(uid)
+	}
+	mw.navigate(screenHome)
 }
 
 // navigate switches to the given screen and updates NFC callbacks.

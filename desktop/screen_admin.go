@@ -17,6 +17,7 @@ import (
 type AdminScreen struct {
 	win               fyne.Window
 	onTarjetaAsociada func(uid string)
+	tabs              *container.AppTabs
 
 	// Crear Socio tab
 	nombreEntry  *widget.Entry
@@ -53,7 +54,7 @@ func (s *AdminScreen) build() fyne.CanvasObject {
 		"Administración", fyne.TextAlignLeading, fyne.TextStyle{Bold: true},
 	)
 
-	tabs := container.NewAppTabs(
+	s.tabs = container.NewAppTabs(
 		container.NewTabItem("👤  Crear Socio", s.buildCrearSocioTab()),
 		container.NewTabItem("💳  Asociar Tarjeta", s.buildAsociarTab()),
 	)
@@ -61,8 +62,26 @@ func (s *AdminScreen) build() fyne.CanvasObject {
 	return container.NewBorder(
 		container.NewPadded(titleLbl),
 		nil, nil, nil,
-		tabs,
+		s.tabs,
 	)
+}
+
+// OnShow resets Admin to the "create new member" state every time the screen opens.
+func (s *AdminScreen) OnShow() {
+	s.nfcWaiting = false
+	nfcSetCallbacks(NFCCallbacks{})
+	if s.nombreEntry != nil {
+		s.limpiarCrear()
+	}
+	if s.asocNFCFrame != nil {
+		s.asocNFCFrame.Hide()
+		s.asocBtn.Enable()
+		s.asocMsg.SetText("")
+		s.uidEntry.SetText("")
+	}
+	if s.tabs != nil {
+		s.tabs.SelectIndex(0)
+	}
 }
 
 // ── Tab: Crear Socio ──────────────────────────────────────────────────────────
@@ -292,7 +311,7 @@ func (s *AdminScreen) cargarSocios() {
 	s.sociosSelect.Refresh()
 
 	go func() {
-		list, err := apiListarSocios()
+		list, err := apiListarSocios(true)
 		s.sociosMu.Lock()
 		s.socios = list
 		s.sociosMu.Unlock()

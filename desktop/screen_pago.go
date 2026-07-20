@@ -27,7 +27,7 @@ type pagoOpSnapshot struct {
 type PagoScreen struct {
 	win         fyne.Window
 	getCardInfo func() map[string]interface{}
-	onBack      func()
+	onBack      func(uid string) // uid vacío = cancelar; no vacío = tarjeta usada
 
 	// Calculator state
 	mu              sync.Mutex
@@ -41,6 +41,7 @@ type PagoScreen struct {
 	// NFC payment state
 	nfcWaiting      bool
 	montoConfirmado float64
+	lastTxnUID      string // UID del último cobro exitoso (para Volver / auto-retorno)
 
 	// UI widgets
 	opsDisplay    *widget.Label
@@ -60,7 +61,7 @@ type PagoScreen struct {
 	selectedLista int
 }
 
-func newPagoScreen(win fyne.Window, getCardInfo func() map[string]interface{}, onBack func()) *PagoScreen {
+func newPagoScreen(win fyne.Window, getCardInfo func() map[string]interface{}, onBack func(uid string)) *PagoScreen {
 	return &PagoScreen{win: win, getCardInfo: getCardInfo, onBack: onBack}
 }
 
@@ -560,27 +561,28 @@ func (s *PagoScreen) validateAndPay(uid string) {
 	if s.historial != nil {
 		s.historial.Load(uid)
 	}
+	s.lastTxnUID = uid
 	s.nfcCancelBtn.SetText("← Volver")
 	s.nfcCancelBtn.Enable()
 
 	time.Sleep(2500 * time.Millisecond)
-	s.resetToCalculator()
+	s.leaveToHome()
 }
 
 func (s *PagoScreen) cancelNFC() {
-	s.nfcWaiting = false
-	s.pressClear()
-	s.showCalculator()
-	s.teardownKeyboard()
-	s.onBack()
+	s.leaveToHome()
 }
 
-func (s *PagoScreen) resetToCalculator() {
+func (s *PagoScreen) leaveToHome() {
+	uid := s.lastTxnUID
+	s.lastTxnUID = ""
 	s.nfcWaiting = false
 	s.pressClear()
 	s.showCalculator()
 	s.teardownKeyboard()
-	s.onBack()
+	if s.onBack != nil {
+		s.onBack(uid)
+	}
 }
 
 func (s *PagoScreen) showNFCWait() {

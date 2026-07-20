@@ -164,11 +164,17 @@ class APIService {
     }
   }
 
-  // Listar todos los socios (requiere rol ADMIN)
-  static Future<List<Map<String, dynamic>>> listarSocios() async {
+  // Listar socios (requiere rol ADMIN).
+  // Con sinTarjeta=true solo los que aún no tienen tarjeta NFC.
+  static Future<List<Map<String, dynamic>>> listarSocios({
+    bool sinTarjeta = false,
+  }) async {
     try {
+      final uri = sinTarjeta
+          ? '$baseUrl/api/admin/socios?sin_tarjeta=true'
+          : '$baseUrl/api/admin/socios';
       final response = await ZitiService.get(
-        '$baseUrl/api/admin/socios',
+        uri,
         headers: headers,
       );
       

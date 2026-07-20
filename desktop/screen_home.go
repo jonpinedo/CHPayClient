@@ -180,9 +180,19 @@ func (h *HomeScreen) OnShow() {
 	}
 }
 
-// SimulateCard processes a UID as if a physical card was tapped (called from Admin).
-func (h *HomeScreen) SimulateCard(uid string) {
-	go h.processCard(uid)
+// PrimeCardUID sets the active card UID without hitting the API.
+// Used before navigate(home) so OnShow refreshes the correct card.
+func (h *HomeScreen) PrimeCardUID(uid string) {
+	if uid == "" {
+		return
+	}
+	h.mu.Lock()
+	if h.clearTimer != nil {
+		h.clearTimer.Stop()
+		h.clearTimer = nil
+	}
+	h.uid = uid
+	h.mu.Unlock()
 }
 
 // GetCardInfo returns the current card state (used by pago/recarga screens).
@@ -241,6 +251,12 @@ func (h *HomeScreen) processCard(uid string) {
 
 	result, err := apiValidarTarjeta(uid)
 	if err != nil {
+		h.mu.Lock()
+		stale := h.uid != uid
+		h.mu.Unlock()
+		if stale {
+			return
+		}
 		h.nameBind.Set("Error: " + err.Error()) //nolint:errcheck
 		return
 	}
@@ -248,6 +264,10 @@ func (h *HomeScreen) processCard(uid string) {
 	balance, _ := strconv.ParseFloat(result.Saldo, 64)
 
 	h.mu.Lock()
+	if h.uid != uid {
+		h.mu.Unlock()
+		return // otra tarjeta más reciente ya está activa
+	}
 	h.cardName = result.Nombre
 	h.cardBalance = balance
 	h.cardValid = result.Permitido

@@ -19,12 +19,13 @@ var montosRapidos = []float64{5, 10, 20, 50}
 type RecargaScreen struct {
 	win         fyne.Window
 	getCardInfo func() map[string]interface{}
-	onBack      func()
+	onBack      func(uid string) // uid vacío = cancelar; no vacío = tarjeta usada
 
 	// State
 	montoStr        string
 	nfcWaiting      bool
 	montoConfirmado float64
+	lastTxnUID      string // UID de la última recarga exitosa
 
 	// UI
 	displayLbl    *canvas.Text
@@ -38,7 +39,7 @@ type RecargaScreen struct {
 	historial     *HistorialWidget
 }
 
-func newRecargaScreen(win fyne.Window, getCardInfo func() map[string]interface{}, onBack func()) *RecargaScreen {
+func newRecargaScreen(win fyne.Window, getCardInfo func() map[string]interface{}, onBack func(uid string)) *RecargaScreen {
 	return &RecargaScreen{win: win, getCardInfo: getCardInfo, onBack: onBack}
 }
 
@@ -279,6 +280,7 @@ func (s *RecargaScreen) validateAndRecharge(uid string) {
 	if s.historial != nil {
 		s.historial.Load(uid)
 	}
+	s.lastTxnUID = uid
 	s.nfcCancelBtn.SetText("← Volver")
 	s.nfcCancelBtn.Enable()
 
@@ -287,16 +289,19 @@ func (s *RecargaScreen) validateAndRecharge(uid string) {
 }
 
 func (s *RecargaScreen) cancelNFC() {
-	s.nfcWaiting = false
 	s.finish()
 }
 
 func (s *RecargaScreen) finish() {
+	uid := s.lastTxnUID
+	s.lastTxnUID = ""
 	s.nfcWaiting = false
 	s.montoStr = ""
 	s.showCalculator()
 	s.teardownKeyboard()
-	s.onBack()
+	if s.onBack != nil {
+		s.onBack(uid)
+	}
 }
 
 func (s *RecargaScreen) showNFCWait() {
