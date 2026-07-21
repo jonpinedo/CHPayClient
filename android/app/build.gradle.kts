@@ -27,9 +27,26 @@ android {
         versionName = flutter.versionName
     }
 
+    // Firma OTA: siempre android/debug.keystore del repo (NO ~/.android/debug.keystore).
+    // Si falta el fichero, el build debe fallar — ver android/keystore.README.md.
+    signingConfigs {
+        create("chpay") {
+            val store = rootProject.file("debug.keystore")
+            check(store.isFile) {
+                "Falta ${store.absolutePath}. Copia el keystore de firma OTA ahí " +
+                    "(ver android/keystore.README.md). Sin él, las actualizaciones " +
+                    "fallan con 'aplicación no instalada' por firma distinta."
+            }
+            storeFile = store
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("chpay")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

@@ -96,6 +96,17 @@ Detalle en `desktop/certs/README.md` y `doc/pendientes.md`.
 
 ## Android (Flutter)
 
+### Firma del APK (crítica para OTA)
+
+Release usa siempre `android/debug.keystore` (configurado en
+`android/app/build.gradle.kts`). **No** se usa `~/.android/debug.keystore`.
+
+- El keystore **no está en git**. Ver `android/keystore.README.md`.
+- SHA-256 esperado:
+  `3C:0F:23:68:25:BF:E3:DE:71:AD:B3:BB:78:6E:B6:D4:2C:BF:5E:6B:16:97:40:C6:0B:76:16:8C:DF:9F:C8:F4`
+- Si falta el fichero, el build falla. Si se publica con otra firma, en el TPV
+  aparece «La aplicación no está instalada» al actualizar.
+
 ### Descarga del APK
 
 El APK se descarga desde Kotlin a través del OkHttp con Ziti para soportar ficheros grandes sin cargar la memoria completa.
@@ -108,9 +119,12 @@ La capa Dart coordina y muestra progreso. Una vez descargado, abre el instalador
 flutter build apk --release
 ```
 
+Requisito: `android/debug.keystore` presente. Compilar desde **copia local** si
+el repo está en un share de red (symlinks); ver skill de release.
+
 La versión se define en `pubspec.yaml`:
 ```yaml
-version: 1.1.4+6   # versionName+versionCode
+version: 1.2.2+9   # versionName+versionCode
 ```
 
 ### Publicación
@@ -119,8 +133,12 @@ version: 1.1.4+6   # versionName+versionCode
 .\publish_apk.ps1 [-Mandatory] [-Changelog "Descripción"]
 ```
 
+(En share de red: build en `C:\build\CHPayClient` y luego Samba + API; el script
+en el share falla por symlinks.)
+
 Requisitos:
 - Flutter en PATH
+- `android/debug.keystore` (firma OTA)
 - Samba share `\\truenas\compartido\apk-releases` montado
 - `CHPAY_PUBLISH_KEY` (opcional, para notificar al servidor): variable de
   entorno, parámetro `-ApiToken`, o `secrets.local.ps1` en la raíz del workspace
