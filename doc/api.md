@@ -80,10 +80,18 @@ Respuesta 200:
   "roles_display": ["Terminal de Cobro", "Caja de Recarga"],
   "activo": true,
   "capitulo_id": 1,
-  "capitulo_nombre": "Sede Central"
+  "capitulo_nombre": "Sede Central",
+  "seguridad_recarga": "desactivada",
+  "exigir_identificacion_recarga": false
 }
 ```
 
+| Campo | Tipo | Notas |
+|-------|------|-------|
+| `seguridad_recarga` | string | `desactivada` \| `pin` \| `tarjeta` — modo de identificación del capítulo |
+| `exigir_identificacion_recarga` | bool | Si el cliente debe pedir PIN/tarjeta en recarga. El servidor ya exceptúa ADMIN. Si el campo no viene (API vieja), tratar como `false` |
+
+La UI de recarga solo mira `exigir_identificacion_recarga` para decidir si pedir identificación; `seguridad_recarga` indica el modo. No recalcular con roles en el cliente.
 ---
 
 ## Capítulos
@@ -199,6 +207,8 @@ Respuesta 200:
 ### POST `/api/recargas/`
 Realiza una recarga. Requiere rol `CAJA`.
 
+Body sin identificación (legacy / seguridad desactivada):
+
 ```json
 {
   "uid": "AB:CD:EF:12:34:56:78",
@@ -206,6 +216,38 @@ Realiza una recarga. Requiere rol `CAJA`.
   "descripcion": "Recarga en efectivo"
 }
 ```
+
+Modo PIN (`seguridad_recarga = pin` y `exigir_identificacion_recarga = true`):
+
+```json
+{
+  "uid": "AB:CD:EF:12:34:56:78",
+  "monto": 50.00,
+  "descripcion": "Recarga en efectivo",
+  "pin": "1234"
+}
+```
+
+Modo tarjeta operador (`seguridad_recarga = tarjeta`):
+
+```json
+{
+  "uid": "AB:CD:EF:12:34:56:78",
+  "monto": 50.00,
+  "descripcion": "Recarga en efectivo",
+  "uid_operador": "12:34:56:78:9A:BC:DE"
+}
+```
+
+| Campo | Tipo | Obligatorio | Notas |
+|-------|------|-------------|-------|
+| `uid` | string | Sí | UID tarjeta NFC del **cliente** |
+| `monto` | decimal | Sí | Importe de la recarga |
+| `descripcion` | string | No | Máx. 255 caracteres |
+| `pin` | string | Condicional | Exactamente 4 dígitos. Solo en modo PIN; no enviar junto con `uid_operador` |
+| `uid_operador` | string | Condicional | UID NFC del **operador**. Solo en modo tarjeta; puede coincidir con `uid` del cliente |
+
+Flujo cliente recomendado: importe → NFC cliente → si `exigir_identificacion_recarga`, pedir PIN o segunda lectura NFC → POST. Cancelar en PIN/tarjeta aborta la recarga. No guardar el PIN en el dispositivo.
 
 Respuesta 200:
 ```json
@@ -221,6 +263,20 @@ Respuesta 200:
 }
 ```
 
+Errores HTTP 400 — `detail` puede ser string (legacy) u objeto:
+
+```json
+{ "detail": { "codigo": "PIN_INVALIDO", "mensaje": "PIN inválido" } }
+```
+
+| `codigo` | Acción UI |
+|----------|-----------|
+| `IDENTIFICACION_REQUERIDA` | Pedir de nuevo PIN/tarjeta y reintentar el POST |
+| `PIN_INVALIDO` | Mostrar mensaje, limpiar PIN y reintentar (sin bloqueo por intentos) |
+| `TARJETA_OPERADOR_INVALIDA` | Mostrar mensaje y volver a pedir lectura de operador |
+| `IDENTIFICACION_MODO_INCORRECTO` | Bug de cliente: campo enviado no coincide con `seguridad_recarga` |
+
+Parseo tolerante: si `detail` es string, usarlo como mensaje; si es objeto, usar `mensaje` y `codigo` para ramificar.
 ### GET `/api/recargas/historial/{uid}?limite=10`
 Historial de transacciones de un socio.
 

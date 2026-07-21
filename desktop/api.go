@@ -59,7 +59,7 @@ func doPost(path string, body interface{}, useAuth bool) (map[string]interface{}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, extractDetail(raw))
+		return nil, parseAPIError(resp.StatusCode, raw)
 	}
 	var result map[string]interface{}
 	json.Unmarshal(raw, &result) //nolint:errcheck
@@ -99,27 +99,70 @@ func doGetPublic(path string) ([]byte, int, error) {
 	return raw, resp.StatusCode, nil
 }
 
-func extractDetail(body []byte) string {
+// APIError is a structured API failure. detail may be a string (legacy) or
+// an object {codigo, mensaje} (recargas identification errors).
+type APIError struct {
+	Status  int
+	Code    string
+	Message string
+}
+
+func (e *APIError) Error() string {
+	if e.Message != "" {
+		return e.Message
+	}
+	return fmt.Sprintf("HTTP %d", e.Status)
+}
+
+func parseAPIError(status int, body []byte) *APIError {
+	ae := &APIError{Status: status, Message: "Sin detalles"}
 	var m map[string]interface{}
-	if json.Unmarshal(body, &m) == nil {
-		if d, ok := m["detail"]; ok {
-			return fmt.Sprintf("%v", d)
+	if json.Unmarshal(body, &m) != nil {
+		s := strings.TrimSpace(string(body))
+		if s != "" {
+			ae.Message = s
 		}
+		return ae
 	}
-	s := strings.TrimSpace(string(body))
-	if s == "" {
-		return "Sin detalles"
+	d, ok := m["detail"]
+	if !ok {
+		s := strings.TrimSpace(string(body))
+		if s != "" {
+			ae.Message = s
+		}
+		return ae
 	}
-	return s
+	switch v := d.(type) {
+	case string:
+		ae.Message = v
+	case map[string]interface{}:
+		if c, ok := v["codigo"].(string); ok {
+			ae.Code = c
+		}
+		if msg, ok := v["mensaje"].(string); ok {
+			ae.Message = msg
+		} else {
+			ae.Message = fmt.Sprintf("%v", v)
+		}
+	default:
+		ae.Message = fmt.Sprintf("%v", d)
+	}
+	return ae
+}
+
+func extractDetail(body []byte) string {
+	return parseAPIError(0, body).Message
 }
 
 // ── Model structs ─────────────────────────────────────────────────────────────
 
 type DeviceInfo struct {
-	Nombre         string   `json:"nombre"`
-	Roles          []string `json:"roles"`
-	CapituloID     int      `json:"capitulo_id"`
-	CapituloNombre string   `json:"capitulo_nombre"`
+	Nombre                      string   `json:"nombre"`
+	Roles                       []string `json:"roles"`
+	CapituloID                  int      `json:"capitulo_id"`
+	CapituloNombre              string   `json:"capitulo_nombre"`
+	SeguridadRecarga            string   `json:"seguridad_recarga"`             // desactivada | pin | tarjeta
+	ExigirIdentificacionRecarga bool     `json:"exigir_identificacion_recarga"` // false if absent (old API)
 }
 
 type ValidarTarjetaResp struct {
@@ -192,7 +235,7 @@ func apiCreateSession(deviceID, permanentToken string) (string, int, error) {
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != 200 {
-		return "", resp.StatusCode, fmt.Errorf("HTTP %d: %s", resp.StatusCode, extractDetail(raw))
+		return "", resp.StatusCode, parseAPIError(resp.StatusCode, raw)
 	}
 	var m map[string]interface{}
 	json.Unmarshal(raw, &m) //nolint:errcheck
@@ -250,12 +293,21 @@ func apiHacerPago(uid string, monto float64, descripcion, operaciones string) (s
 
 // ── Recargas ──────────────────────────────────────────────────────────────────
 
-func apiHacerRecarga(uid string, monto float64, descripcion string) (string, error) {
-	result, err := doPost("/api/recargas/", map[string]interface{}{
+// apiHacerRecarga posts a recharge. Pass at most one of pin or uidOperador
+// (never both). Empty strings omit the identification fields (legacy / off).
+func apiHacerRecarga(uid string, monto float64, descripcion, pin, uidOperador string) (string, error) {
+	body := map[string]interface{}{
 		"uid":         uid,
 		"monto":       monto,
 		"descripcion": descripcion,
-	}, true)
+	}
+	if pin != "" {
+		body["pin"] = pin
+	}
+	if uidOperador != "" {
+		body["uid_operador"] = uidOperador
+	}
+	result, err := doPost("/api/recargas/", body, true)
 	if err != nil {
 		return "", err
 	}

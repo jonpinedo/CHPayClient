@@ -8,17 +8,23 @@ class RecargaScreen extends StatefulWidget {
   final String uid;
   final String nombre;
   final double saldoActual;
+  final bool exigirIdentificacion;
+  final String seguridadRecarga; // desactivada | pin | tarjeta
 
   const RecargaScreen({
     Key? key,
     required this.uid,
     required this.nombre,
     required this.saldoActual,
+    this.exigirIdentificacion = false,
+    this.seguridadRecarga = 'desactivada',
   }) : super(key: key);
 
   @override
   State<RecargaScreen> createState() => _RecargaScreenState();
 }
+
+enum _FaseNfc { cliente, operador }
 
 class _RecargaScreenState extends State<RecargaScreen> {
   final TextEditingController _descripcionController = TextEditingController();
@@ -28,6 +34,8 @@ class _RecargaScreenState extends State<RecargaScreen> {
   String uidValidado = '';
   String _monto = '';
   bool _nfcSessionActiva = false;
+  _FaseNfc _faseNfc = _FaseNfc.cliente;
+  String? _ultimoError;
 
   // Montos rápidos predefinidos
   final List<double> montosRapidos = [5.0, 10.0, 20.0, 50.0];
@@ -38,7 +46,7 @@ class _RecargaScreenState extends State<RecargaScreen> {
     _descripcionController.dispose();
     super.dispose();
   }
-  
+
   Future<void> _detenerSesionNfc() async {
     if (_nfcSessionActiva) {
       try {
@@ -78,8 +86,6 @@ class _RecargaScreenState extends State<RecargaScreen> {
   }
 
   Future<void> _procesarRecarga() async {
-    final descripcion = _descripcionController.text.trim();
-
     if (_monto.isEmpty) {
       _mostrarError('Ingresa un monto');
       return;
@@ -91,59 +97,151 @@ class _RecargaScreenState extends State<RecargaScreen> {
       return;
     }
 
-    // Cambiar a modo esperando tarjeta
     setState(() {
       esperandoTarjeta = true;
       montoConfirmado = monto;
+      _faseNfc = _FaseNfc.cliente;
+      _ultimoError = null;
     });
-    
-    // Iniciar lectura automática de NFC
-    _leerTarjetaParaConfirmar();
+
+    _leerTarjeta(fase: _FaseNfc.cliente);
   }
 
-  Future<void> _confirmarConTarjeta() async {
+  Future<void> _confirmarConTarjeta({String? pin, String? uidOperador}) async {
     final descripcion = _descripcionController.text.trim();
 
-    setState(() => isProcessing = true);
+    setState(() {
+      isProcessing = true;
+      _ultimoError = null;
+    });
 
     try {
       final resultado = await APIService.hacerRecarga(
         uidValidado,
         montoConfirmado,
         descripcion.isEmpty ? 'Recarga' : descripcion,
+        pin: pin,
+        uidOperador: uidOperador,
       );
 
-      setState(() => isProcessing = false);
+      if (!mounted) return;
 
       if (resultado.containsKey('error')) {
-        _mostrarError(resultado['error'].toString());
-      } else {
-        HapticFeedback.heavyImpact();
-        _mostrarExito('Recarga realizada: +${montoConfirmado.toStringAsFixed(2)}€');
-        Future.delayed(const Duration(seconds: 1), () {
-          Navigator.pop(context, {'actualizado': true, 'uid': uidValidado});
-        });
+        setState(() => isProcessing = false);
+        await _manejarErrorRecarga(
+          resultado['error']?.toString() ?? 'Error desconocido',
+          resultado['codigo']?.toString(),
+        );
+        return;
       }
+
+      setState(() => isProcessing = false);
+      HapticFeedback.heavyImpact();
+      _mostrarExito(
+          'Recarga realizada: +${montoConfirmado.toStringAsFixed(2)}€');
+      Future.delayed(const Duration(seconds: 1), () {
+        if (mounted) {
+          Navigator.pop(context, {'actualizado': true, 'uid': uidValidado});
+        }
+      });
     } catch (e) {
+      if (!mounted) return;
       setState(() => isProcessing = false);
       _mostrarError('Error al procesar: $e');
     }
   }
 
-  Future<void> _leerTarjetaParaConfirmar() async {
+  Future<void> _manejarErrorRecarga(String mensaje, String? codigo) async {
+    setState(() => _ultimoError = mensaje);
+    _mostrarError(mensaje);
+
+    switch (codigo) {
+      case 'PIN_INVALIDO':
+      case 'IDENTIFICACION_REQUERIDA':
+        if (widget.seguridadRecarga == 'pin') {
+          await _pedirPinYConfirmar();
+        } else if (widget.seguridadRecarga == 'tarjeta') {
+          setState(() {
+            _faseNfc = _FaseNfc.operador;
+            esperandoTarjeta = true;
+          });
+          _leerTarjeta(fase: _FaseNfc.operador);
+        }
+        break;
+      case 'TARJETA_OPERADOR_INVALIDA':
+        setState(() {
+          _faseNfc = _FaseNfc.operador;
+          esperandoTarjeta = true;
+        });
+        _leerTarjeta(fase: _FaseNfc.operador);
+        break;
+      case 'IDENTIFICACION_MODO_INCORRECTO':
+        _mostrarError(
+            'Error de cliente: modo de identificación incorrecto');
+        break;
+    }
+  }
+
+  Future<void> _despuesDeClienteValidado() async {
+    if (!widget.exigirIdentificacion) {
+      await _confirmarConTarjeta();
+      return;
+    }
+
+    switch (widget.seguridadRecarga) {
+      case 'pin':
+        await _pedirPinYConfirmar();
+        break;
+      case 'tarjeta':
+        setState(() {
+          isProcessing = false;
+          _faseNfc = _FaseNfc.operador;
+          _ultimoError = null;
+        });
+        _leerTarjeta(fase: _FaseNfc.operador);
+        break;
+      default:
+        await _confirmarConTarjeta();
+    }
+  }
+
+  Future<void> _pedirPinYConfirmar() async {
+    setState(() => isProcessing = false);
+    await _detenerSesionNfc();
+
+    final pin = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => const _PinDialog(),
+    );
+
+    if (!mounted) return;
+
+    if (pin == null) {
+      // Cancelar aborta la recarga
+      _cancelarConfirmacion();
+      return;
+    }
+
+    await _confirmarConTarjeta(pin: pin);
+  }
+
+  Future<void> _leerTarjeta({required _FaseNfc fase}) async {
     try {
       setState(() {
         isProcessing = true;
+        _faseNfc = fase;
       });
-      
+
+      await _detenerSesionNfc();
+
       bool isAvailable = await NfcManager.instance.isAvailable();
       if (!isAvailable) {
         setState(() => isProcessing = false);
         _mostrarError('NFC no disponible');
         return;
       }
-      
-      // Iniciar sesión NFC persistente
+
       await NfcManager.instance.startSession(
         pollingOptions: const {
           NfcPollingOption.iso14443,
@@ -152,32 +250,41 @@ class _RecargaScreenState extends State<RecargaScreen> {
         },
         onDiscovered: (NfcTag tag) async {
           _nfcSessionActiva = true;
-          
-          // Extraer UID
+
           final androidTag = NfcTagAndroid.from(tag);
-          if (androidTag != null && androidTag.id.isNotEmpty) {
-            final uidLeido = androidTag.id
-                .map((b) => b.toRadixString(16).padLeft(2, '0'))
-                .join('')
-                .toUpperCase();
-            
-            // Validar tarjeta en API
-            final resultado = await APIService.validarTarjeta(uidLeido);
-            
-            if (resultado.containsKey('error')) {
-              setState(() => isProcessing = false);
-              _mostrarError(resultado['error'].toString());
-            } else {
-              if (resultado['monedero_creado'] == true) {
-                _mostrarAvisoMonederoCreado();
-              }
-              uidValidado = uidLeido;
-              await _confirmarConTarjeta();
-            }
-          } else {
+          if (androidTag == null || androidTag.id.isEmpty) {
             setState(() => isProcessing = false);
             _mostrarError('No se pudo leer la tarjeta');
+            return;
           }
+
+          final uidLeido = androidTag.id
+              .map((b) => b.toRadixString(16).padLeft(2, '0'))
+              .join('')
+              .toUpperCase();
+
+          if (fase == _FaseNfc.operador) {
+            await _detenerSesionNfc();
+            await _confirmarConTarjeta(uidOperador: uidLeido);
+            return;
+          }
+
+          // Fase cliente: validar tarjeta
+          final resultado = await APIService.validarTarjeta(uidLeido);
+
+          if (resultado.containsKey('error')) {
+            setState(() => isProcessing = false);
+            _mostrarError(resultado['error'].toString());
+            return;
+          }
+
+          if (resultado['monedero_creado'] == true) {
+            _mostrarAvisoMonederoCreado();
+          }
+
+          uidValidado = uidLeido;
+          await _detenerSesionNfc();
+          await _despuesDeClienteValidado();
         },
       );
       _nfcSessionActiva = true;
@@ -188,12 +295,22 @@ class _RecargaScreenState extends State<RecargaScreen> {
   }
 
   void _simularLecturaTarjeta() async {
-    // Simular lectura en modo debug
+    if (_faseNfc == _FaseNfc.operador) {
+      // Mock: reutilizar UID de la tarjeta en pantalla como operador
+      if (widget.uid.isNotEmpty) {
+        await _confirmarConTarjeta(uidOperador: widget.uid);
+      } else {
+        _mostrarError('No hay UID para mock de operador');
+      }
+      return;
+    }
+
     if (widget.uid.isNotEmpty) {
       uidValidado = widget.uid;
-      await _confirmarConTarjeta();
+      await _despuesDeClienteValidado();
     } else {
-      _mostrarError('No hay tarjeta cargada. Lee una tarjeta primero desde la pantalla principal.');
+      _mostrarError(
+          'No hay tarjeta cargada. Lee una tarjeta primero desde la pantalla principal.');
     }
   }
 
@@ -201,8 +318,11 @@ class _RecargaScreenState extends State<RecargaScreen> {
     _detenerSesionNfc();
     setState(() {
       esperandoTarjeta = false;
+      isProcessing = false;
       montoConfirmado = 0.0;
       uidValidado = '';
+      _faseNfc = _FaseNfc.cliente;
+      _ultimoError = null;
     });
   }
 
@@ -244,7 +364,8 @@ class _RecargaScreenState extends State<RecargaScreen> {
             padding: const EdgeInsets.symmetric(vertical: 20),
             backgroundColor: Colors.white,
             foregroundColor: Colors.black87,
-            textStyle: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+            textStyle:
+                const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
           ),
           child: Text(texto),
         ),
@@ -252,7 +373,8 @@ class _RecargaScreenState extends State<RecargaScreen> {
     );
   }
 
-  Widget _buildTeclaOperacion(String texto, VoidCallback onPressed, {Color? color}) {
+  Widget _buildTeclaOperacion(String texto, VoidCallback onPressed,
+      {Color? color}) {
     return Expanded(
       child: Padding(
         padding: const EdgeInsets.all(4),
@@ -262,7 +384,8 @@ class _RecargaScreenState extends State<RecargaScreen> {
             padding: const EdgeInsets.symmetric(vertical: 20),
             backgroundColor: color ?? Colors.blue.shade700,
             foregroundColor: Colors.white,
-            textStyle: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+            textStyle:
+                const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
           ),
           child: Text(texto),
         ),
@@ -273,12 +396,14 @@ class _RecargaScreenState extends State<RecargaScreen> {
   @override
   Widget build(BuildContext context) {
     final double montoActual = double.tryParse(_monto) ?? 0;
-    
-    // Si estamos esperando tarjeta, mostrar pantalla de confirmación
+
     if (esperandoTarjeta) {
+      final esOperador = _faseNfc == _FaseNfc.operador;
       return Scaffold(
         appBar: AppBar(
-          title: const Text('Confirmar Recarga'),
+          title: Text(esOperador
+              ? 'Identificación operador'
+              : 'Confirmar Recarga'),
           leading: IconButton(
             icon: const Icon(Icons.arrow_back),
             onPressed: _cancelarConfirmacion,
@@ -293,12 +418,17 @@ class _RecargaScreenState extends State<RecargaScreen> {
                 Icon(
                   Icons.contactless,
                   size: 100,
-                  color: Colors.green.shade700,
+                  color: esOperador
+                      ? Colors.orange.shade700
+                      : Colors.green.shade700,
                 ),
                 const SizedBox(height: 24),
-                const Text(
-                  'Acerca la tarjeta para confirmar la recarga',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                Text(
+                  esOperador
+                      ? 'Acerca la tarjeta del operador'
+                      : 'Acerca la tarjeta para confirmar la recarga',
+                  style: const TextStyle(
+                      fontSize: 20, fontWeight: FontWeight.bold),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 16),
@@ -310,6 +440,14 @@ class _RecargaScreenState extends State<RecargaScreen> {
                     color: Colors.green.shade700,
                   ),
                 ),
+                if (_ultimoError != null) ...[
+                  const SizedBox(height: 16),
+                  Text(
+                    _ultimoError!,
+                    style: TextStyle(color: Colors.red.shade700),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
                 const SizedBox(height: 32),
                 if (isProcessing) ...[
                   const SizedBox(
@@ -353,16 +491,13 @@ class _RecargaScreenState extends State<RecargaScreen> {
         ),
       );
     }
-    
-    // Pantalla normal de cálculo
-    
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Realizar Recarga'),
       ),
       body: Column(
         children: [
-          // Info del socio
           Card(
             margin: const EdgeInsets.all(16),
             child: Padding(
@@ -370,8 +505,11 @@ class _RecargaScreenState extends State<RecargaScreen> {
               child: Column(
                 children: [
                   Text(
-                    widget.nombre.isNotEmpty ? widget.nombre : 'Sin tarjeta leída',
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    widget.nombre.isNotEmpty
+                        ? widget.nombre
+                        : 'Sin tarjeta leída',
+                    style: const TextStyle(
+                        fontSize: 18, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 8),
                   if (widget.uid.isNotEmpty)
@@ -396,7 +534,6 @@ class _RecargaScreenState extends State<RecargaScreen> {
               ),
             ),
           ),
-          // Botones de montos rápidos
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Row(
@@ -405,13 +542,16 @@ class _RecargaScreenState extends State<RecargaScreen> {
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 4),
                     child: ElevatedButton(
-                      onPressed: isProcessing ? null : () => _seleccionarMontoRapido(monto),
+                      onPressed: isProcessing
+                          ? null
+                          : () => _seleccionarMontoRapido(monto),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.green.shade100,
                         foregroundColor: Colors.green.shade900,
                         padding: const EdgeInsets.symmetric(vertical: 12),
                       ),
-                      child: Text('${monto.toStringAsFixed(0)}€', style: const TextStyle(fontWeight: FontWeight.bold)),
+                      child: Text('${monto.toStringAsFixed(0)}€',
+                          style: const TextStyle(fontWeight: FontWeight.bold)),
                     ),
                   ),
                 );
@@ -419,7 +559,6 @@ class _RecargaScreenState extends State<RecargaScreen> {
             ),
           ),
           const SizedBox(height: 16),
-          // Display principal
           Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
@@ -440,7 +579,6 @@ class _RecargaScreenState extends State<RecargaScreen> {
               textAlign: TextAlign.right,
             ),
           ),
-          // Teclado numérico
           Expanded(
             child: Padding(
               padding: const EdgeInsets.all(8),
@@ -452,7 +590,8 @@ class _RecargaScreenState extends State<RecargaScreen> {
                         _buildTeclaNumero('7'),
                         _buildTeclaNumero('8'),
                         _buildTeclaNumero('9'),
-                        _buildTeclaOperacion('C', _limpiar, color: Colors.red.shade700),
+                        _buildTeclaOperacion('C', _limpiar,
+                            color: Colors.red.shade700),
                       ],
                     ),
                   ),
@@ -462,7 +601,8 @@ class _RecargaScreenState extends State<RecargaScreen> {
                         _buildTeclaNumero('4'),
                         _buildTeclaNumero('5'),
                         _buildTeclaNumero('6'),
-                        _buildTeclaOperacion('⌫', _borrar, color: Colors.orange.shade700),
+                        _buildTeclaOperacion('⌫', _borrar,
+                            color: Colors.orange.shade700),
                       ],
                     ),
                   ),
@@ -472,7 +612,8 @@ class _RecargaScreenState extends State<RecargaScreen> {
                         _buildTeclaNumero('1'),
                         _buildTeclaNumero('2'),
                         _buildTeclaNumero('3'),
-                        _buildTeclaOperacion('OK', _procesarRecarga, color: Colors.green.shade700),
+                        _buildTeclaOperacion('OK', _procesarRecarga,
+                            color: Colors.green.shade700),
                       ],
                     ),
                   ),
@@ -492,6 +633,80 @@ class _RecargaScreenState extends State<RecargaScreen> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Modal PIN: 4 dígitos numéricos, ocultos, teclado numérico.
+class _PinDialog extends StatefulWidget {
+  const _PinDialog();
+
+  @override
+  State<_PinDialog> createState() => _PinDialogState();
+}
+
+class _PinDialogState extends State<_PinDialog> {
+  final TextEditingController _controller = TextEditingController();
+  String? _error;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _confirmar() {
+    final pin = _controller.text;
+    if (pin.length != 4 || !RegExp(r'^\d{4}$').hasMatch(pin)) {
+      setState(() => _error = 'El PIN debe tener exactamente 4 dígitos');
+      return;
+    }
+    Navigator.of(context).pop(pin);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Identificación requerida'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text('Introduce el PIN del operador (4 dígitos)'),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _controller,
+            autofocus: true,
+            obscureText: true,
+            obscuringCharacter: '•',
+            keyboardType: TextInputType.number,
+            maxLength: 4,
+            inputFormatters: [
+              FilteringTextInputFormatter.digitsOnly,
+              LengthLimitingTextInputFormatter(4),
+            ],
+            decoration: InputDecoration(
+              labelText: 'PIN',
+              counterText: '',
+              errorText: _error,
+              border: const OutlineInputBorder(),
+            ),
+            onChanged: (_) {
+              if (_error != null) setState(() => _error = null);
+            },
+            onSubmitted: (_) => _confirmar(),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(null),
+          child: const Text('Cancelar'),
+        ),
+        ElevatedButton(
+          onPressed: _confirmar,
+          child: const Text('Confirmar'),
+        ),
+      ],
     );
   }
 }

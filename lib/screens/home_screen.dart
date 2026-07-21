@@ -33,6 +33,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   String nombreDispositivo = 'Cargando...';
   List<String> roles = [];
   bool rolesLoaded = false;
+  bool exigirIdentificacionRecarga = false;
+  String seguridadRecarga = 'desactivada'; // desactivada | pin | tarjeta
   
   // Capítulo (multi-tenancy)
   int? capituloId;
@@ -231,6 +233,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           rolesLoaded = true;
           capituloId = capId is int ? capId : int.tryParse(capId.toString());
           capituloNombre = capNombre;
+          exigirIdentificacionRecarga =
+              info['exigir_identificacion_recarga'] == true;
+          seguridadRecarga =
+              (info['seguridad_recarga'] as String?)?.toLowerCase() ??
+                  'desactivada';
           estado = 'Listo';
         });
         
@@ -482,6 +489,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           uid: tarjetaValida ? uid : '',
           nombre: tarjetaValida ? socioNombre : '',
           saldoActual: tarjetaValida ? saldo : 0.0,
+          exigirIdentificacion: exigirIdentificacionRecarga,
+          seguridadRecarga: seguridadRecarga,
         ),
       ),
     ).then((resultado) {

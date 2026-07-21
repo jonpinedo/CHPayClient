@@ -1,5 +1,6 @@
 // screen_recarga.go — Recharge screen.
 // Left: quick amount buttons + numpad + NFC confirmation. Right: historial.
+// Optional identification (PIN or operator card) when exigir_identificacion_recarga.
 package main
 
 import (
@@ -7,10 +8,12 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
 )
 
@@ -21,10 +24,16 @@ type RecargaScreen struct {
 	getCardInfo func() map[string]interface{}
 	onBack      func(uid string) // uid vacío = cancelar; no vacío = tarjeta usada
 
+	// Session flags (refreshed on OnShow)
+	exigirIdentificacion bool
+	seguridadRecarga     string // desactivada | pin | tarjeta
+
 	// State
 	montoStr        string
 	nfcWaiting      bool
+	waitingOperador bool
 	montoConfirmado float64
+	clienteUID      string
 	lastTxnUID      string // UID de la última recarga exitosa
 
 	// UI
@@ -33,6 +42,7 @@ type RecargaScreen struct {
 	descEntry     *widget.Entry
 	calcContainer *fyne.Container
 	nfcContainer  *fyne.Container
+	nfcHintLbl    *widget.Label
 	nfcAmountText *canvas.Text
 	nfcStatusLbl  *widget.Label
 	nfcCancelBtn  *widget.Button
@@ -45,8 +55,12 @@ func newRecargaScreen(win fyne.Window, getCardInfo func() map[string]interface{}
 
 // OnShow is called when the screen becomes active.
 func (s *RecargaScreen) OnShow() {
-	info := s.getCardInfo()
-	uid, _ := info["uid"].(string)
+	info := apiGetDeviceInfo()
+	s.exigirIdentificacion = info.ExigirIdentificacionRecarga
+	s.seguridadRecarga = strings.ToLower(strings.TrimSpace(info.SeguridadRecarga))
+
+	card := s.getCardInfo()
+	uid, _ := card["uid"].(string)
 	if uid != "" && s.historial != nil {
 		s.historial.Load(uid)
 	} else if s.historial != nil {
@@ -141,7 +155,7 @@ func (s *RecargaScreen) build() fyne.CanvasObject {
 
 	// ── NFC wait panel ────────────────────────────────────────────────────────
 	nfcIcon := widget.NewLabelWithStyle("📡", fyne.TextAlignCenter, fyne.TextStyle{})
-	nfcHint := widget.NewLabelWithStyle(
+	s.nfcHintLbl = widget.NewLabelWithStyle(
 		"Acerca la tarjeta al lector", fyne.TextAlignCenter, fyne.TextStyle{Bold: true},
 	)
 	s.nfcAmountText = canvas.NewText("", colorBlue)
@@ -157,7 +171,7 @@ func (s *RecargaScreen) build() fyne.CanvasObject {
 
 	s.nfcContainer = container.NewVBox(
 		container.NewCenter(nfcIcon),
-		container.NewCenter(nfcHint),
+		container.NewCenter(s.nfcHintLbl),
 		container.NewCenter(s.nfcAmountText),
 		s.nfcStatusLbl,
 		container.NewCenter(s.nfcCancelBtn),
@@ -235,7 +249,9 @@ func (s *RecargaScreen) processRecarga() {
 		return
 	}
 	s.montoConfirmado = monto
-	s.showNFCWait()
+	s.waitingOperador = false
+	s.clienteUID = ""
+	s.showNFCWaitCliente()
 
 	s.nfcWaiting = true
 	nfcSetCallbacks(NFCCallbacks{
@@ -244,7 +260,11 @@ func (s *RecargaScreen) processRecarga() {
 				return
 			}
 			s.nfcWaiting = false
-			go s.validateAndRecharge(uid)
+			if s.waitingOperador {
+				go s.completeWithOperador(uid)
+			} else {
+				go s.validateAndRecharge(uid)
+			}
 		},
 	})
 }
@@ -264,28 +284,179 @@ func (s *RecargaScreen) validateAndRecharge(uid string) {
 		time.Sleep(2 * time.Second)
 	}
 
+	s.clienteUID = uid
+
+	if !s.exigirIdentificacion {
+		s.postRecarga("", "")
+		return
+	}
+
+	switch s.seguridadRecarga {
+	case "pin":
+		s.askPINAndPost()
+	case "tarjeta":
+		s.waitOperadorCard()
+	default:
+		// Flag ON but unknown mode — try legacy body; server may return 400.
+		s.postRecarga("", "")
+	}
+}
+
+func (s *RecargaScreen) askPINAndPost() {
+	pinEntry := widget.NewPasswordEntry()
+	pinEntry.SetPlaceHolder("****")
+	pinEntry.Validator = func(val string) error {
+		if len(val) != 4 {
+			return fmt.Errorf("el PIN debe tener 4 dígitos")
+		}
+		for _, r := range val {
+			if !unicode.IsDigit(r) {
+				return fmt.Errorf("solo dígitos numéricos")
+			}
+		}
+		return nil
+	}
+
+	// Restrict typed input to digits, max 4
+	pinEntry.OnChanged = func(v string) {
+		filtered := make([]rune, 0, 4)
+		for _, r := range v {
+			if unicode.IsDigit(r) {
+				filtered = append(filtered, r)
+			}
+			if len(filtered) >= 4 {
+				break
+			}
+		}
+		clean := string(filtered)
+		if clean != v {
+			pinEntry.SetText(clean)
+		}
+	}
+
+	form := dialog.NewForm(
+		"Identificación requerida",
+		"Confirmar",
+		"Cancelar",
+		[]*widget.FormItem{
+			widget.NewFormItem("PIN (4 dígitos)", pinEntry),
+		},
+		func(ok bool) {
+			if !ok {
+				s.finish()
+				return
+			}
+			pin := pinEntry.Text
+			if len(pin) != 4 {
+				s.nfcStatusLbl.SetText("❌ El PIN debe tener exactamente 4 dígitos")
+				s.nfcCancelBtn.Enable()
+				// Re-open dialog for retry
+				go func() {
+					time.Sleep(300 * time.Millisecond)
+					s.askPINAndPost()
+				}()
+				return
+			}
+			go s.postRecarga(pin, "")
+		},
+		s.win,
+	)
+	s.nfcStatusLbl.SetText("Introduce el PIN del operador")
+	s.nfcCancelBtn.Enable()
+	form.Show()
+	s.win.Canvas().Focus(pinEntry)
+}
+
+func (s *RecargaScreen) waitOperadorCard() {
+	s.waitingOperador = true
+	s.nfcHintLbl.SetText("Acerca la tarjeta del operador")
+	s.nfcStatusLbl.SetText("Esperando tarjeta del operador...")
+	s.nfcCancelBtn.SetText("Cancelar")
+	s.nfcCancelBtn.Enable()
+
+	s.nfcWaiting = true
+	nfcSetCallbacks(NFCCallbacks{
+		OnCardDetected: func(uid string) {
+			if !s.nfcWaiting || !s.waitingOperador {
+				return
+			}
+			s.nfcWaiting = false
+			go s.completeWithOperador(uid)
+		},
+	})
+}
+
+func (s *RecargaScreen) completeWithOperador(uidOperador string) {
+	s.postRecarga("", uidOperador)
+}
+
+func (s *RecargaScreen) postRecarga(pin, uidOperador string) {
 	s.nfcStatusLbl.SetText("Procesando recarga...")
+	s.nfcCancelBtn.Disable()
+
 	desc := s.descEntry.Text
 	if desc == "" {
 		desc = "Recarga"
 	}
-	saldoPost, err := apiHacerRecarga(uid, s.montoConfirmado, desc)
+
+	saldoPost, err := apiHacerRecarga(s.clienteUID, s.montoConfirmado, desc, pin, uidOperador)
 	if err != nil {
-		s.nfcStatusLbl.SetText("❌ " + err.Error())
-		s.nfcCancelBtn.Enable()
+		s.handleRecargaError(err, pin != "", uidOperador != "")
 		return
 	}
 
+	s.waitingOperador = false
 	s.nfcStatusLbl.SetText(fmt.Sprintf("✅ Recarga realizada  ·  Saldo nuevo: %s €", saldoPost))
 	if s.historial != nil {
-		s.historial.Load(uid)
+		s.historial.Load(s.clienteUID)
 	}
-	s.lastTxnUID = uid
+	s.lastTxnUID = s.clienteUID
 	s.nfcCancelBtn.SetText("← Volver")
 	s.nfcCancelBtn.Enable()
 
 	time.Sleep(2500 * time.Millisecond)
 	s.finish()
+}
+
+func (s *RecargaScreen) handleRecargaError(err error, usedPIN, usedOperador bool) {
+	ae, _ := err.(*APIError)
+	msg := err.Error()
+	code := ""
+	if ae != nil {
+		code = ae.Code
+		if ae.Message != "" {
+			msg = ae.Message
+		}
+	}
+
+	s.nfcStatusLbl.SetText("❌ " + msg)
+	s.nfcCancelBtn.Enable()
+
+	switch code {
+	case "PIN_INVALIDO", "IDENTIFICACION_REQUERIDA":
+		if s.seguridadRecarga == "pin" || usedPIN {
+			go func() {
+				time.Sleep(800 * time.Millisecond)
+				s.askPINAndPost()
+			}()
+			return
+		}
+		if s.seguridadRecarga == "tarjeta" || usedOperador {
+			go func() {
+				time.Sleep(800 * time.Millisecond)
+				s.waitOperadorCard()
+			}()
+			return
+		}
+	case "TARJETA_OPERADOR_INVALIDA":
+		go func() {
+			time.Sleep(800 * time.Millisecond)
+			s.waitOperadorCard()
+		}()
+		return
+	case "IDENTIFICACION_MODO_INCORRECTO":
+		s.nfcStatusLbl.SetText("❌ Error de cliente: modo de identificación incorrecto")
+	}
 }
 
 func (s *RecargaScreen) cancelNFC() {
@@ -295,8 +466,11 @@ func (s *RecargaScreen) cancelNFC() {
 func (s *RecargaScreen) finish() {
 	uid := s.lastTxnUID
 	s.lastTxnUID = ""
+	s.clienteUID = ""
 	s.nfcWaiting = false
+	s.waitingOperador = false
 	s.montoStr = ""
+	nfcSetCallbacks(NFCCallbacks{})
 	s.showCalculator()
 	s.teardownKeyboard()
 	if s.onBack != nil {
@@ -304,9 +478,10 @@ func (s *RecargaScreen) finish() {
 	}
 }
 
-func (s *RecargaScreen) showNFCWait() {
+func (s *RecargaScreen) showNFCWaitCliente() {
 	s.calcContainer.Hide()
 	s.nfcContainer.Show()
+	s.nfcHintLbl.SetText("Acerca la tarjeta al lector")
 	s.nfcAmountText.Text = fmt.Sprintf("+%.2f €", s.montoConfirmado)
 	s.nfcAmountText.Refresh()
 	s.nfcStatusLbl.SetText("Esperando tarjeta...")

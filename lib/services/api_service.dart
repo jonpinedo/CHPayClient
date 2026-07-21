@@ -50,7 +50,7 @@ class APIService {
   };
 
 
-  // Obtener información del dispositivo (roles)
+  // Obtener información del dispositivo (roles + seguridad recarga)
   static Future<Map<String, dynamic>> obtenerInfoDispositivo() async {
     try {
       print('🔍 Intentando conectar a: $baseUrl/api/auth/me');
@@ -62,7 +62,13 @@ class APIService {
       
       print('✅ Respuesta recibida: ${response.statusCode}');
       if (response.statusCode == 200) {
-        return jsonDecode(response.body);
+        final Map<String, dynamic> data = jsonDecode(response.body);
+        // Compatibilidad API vieja: si no viene, tratar como false
+        data['exigir_identificacion_recarga'] =
+            data['exigir_identificacion_recarga'] == true;
+        data['seguridad_recarga'] =
+            (data['seguridad_recarga'] as String?)?.toLowerCase() ?? 'desactivada';
+        return data;
       } else {
         print('❌ Error HTTP: ${response.statusCode} - ${response.body}');
         throw Exception('Error: ${response.statusCode}');
@@ -119,30 +125,72 @@ class APIService {
     }
   }
 
-  // Hacer recarga
+  // Hacer recarga. Pasar solo pin o uidOperador (nunca ambos).
+  // Null/vacío = body legacy sin identificación.
   static Future<Map<String, dynamic>> hacerRecarga(
     String uid,
     double monto,
-    String descripcion,
-  ) async {
+    String descripcion, {
+    String? pin,
+    String? uidOperador,
+  }) async {
     try {
+      final body = <String, dynamic>{
+        'uid': uid,
+        'monto': monto,
+        'descripcion': descripcion,
+      };
+      if (pin != null && pin.isNotEmpty) {
+        body['pin'] = pin;
+      }
+      if (uidOperador != null && uidOperador.isNotEmpty) {
+        body['uid_operador'] = uidOperador;
+      }
+
       final response = await ZitiService.post(
         '$baseUrl/api/recargas/',
         headers: headers,
-        body: jsonEncode({
-          'uid': uid,
-          'monto': monto,
-          'descripcion': descripcion,
-        }),
+        body: jsonEncode(body),
       );
       
       if (response.statusCode == 200) {
         return jsonDecode(response.body);
-      } else {
-        throw Exception('Error: ${response.statusCode}');
       }
+
+      final parsed = _parseErrorDetail(response.body);
+      return {
+        'error': parsed['mensaje'] ?? 'Error: ${response.statusCode}',
+        'codigo': parsed['codigo'],
+        'statusCode': response.statusCode,
+      };
     } catch (e) {
       return {'error': e.toString()};
+    }
+  }
+
+  /// Parseo tolerante de detail: string legacy o {codigo, mensaje}.
+  static Map<String, String?> _parseErrorDetail(String body) {
+    try {
+      final data = jsonDecode(body);
+      if (data is! Map) {
+        return {'mensaje': body, 'codigo': null};
+      }
+      final detail = data['detail'];
+      if (detail is Map) {
+        return {
+          'codigo': detail['codigo']?.toString(),
+          'mensaje': detail['mensaje']?.toString() ?? detail.toString(),
+        };
+      }
+      if (detail != null) {
+        return {'mensaje': detail.toString(), 'codigo': null};
+      }
+      return {'mensaje': body, 'codigo': null};
+    } catch (_) {
+      return {
+        'mensaje': body.isNotEmpty ? body : 'Sin detalles',
+        'codigo': null,
+      };
     }
   }
 
