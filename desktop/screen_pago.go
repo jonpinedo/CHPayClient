@@ -58,6 +58,7 @@ type PagoScreen struct {
 	// Price list panel
 	listaSelect   *widget.Select
 	itemsPanel    *fyne.Container
+	itemsScroll   *container.Scroll
 	selectedLista int
 }
 
@@ -228,8 +229,10 @@ func (s *PagoScreen) buildPriceListPanel() fyne.CanvasObject {
 	}
 
 	s.itemsPanel = container.NewVBox()
-	scrollItems := container.NewVScroll(s.itemsPanel)
-	scrollItems.SetMinSize(fyne.NewSize(250, 300))
+	// Scroll acotado por el Border/HSplit (mismo patrón que el historial).
+	// No fijar MinSize alto: si no, el panel crece con el contenido y no aparece barra.
+	s.itemsScroll = container.NewScroll(s.itemsPanel)
+	s.itemsScroll.Direction = container.ScrollVerticalOnly
 
 	s.listaSelect = widget.NewSelect(options, func(selected string) {
 		for _, l := range listas {
@@ -251,7 +254,7 @@ func (s *PagoScreen) buildPriceListPanel() fyne.CanvasObject {
 	return container.NewBorder(
 		container.NewVBox(header, s.listaSelect),
 		nil, nil, nil,
-		scrollItems,
+		s.itemsScroll,
 	)
 }
 
@@ -302,6 +305,10 @@ func (s *PagoScreen) renderItems(listaID int) {
 		s.itemsPanel.Add(tappable)
 	}
 	s.itemsPanel.Refresh()
+	if s.itemsScroll != nil {
+		s.itemsScroll.Offset = fyne.NewPos(0, 0)
+		s.itemsScroll.Refresh()
+	}
 }
 
 // addItemToTotal adds an item price to the calculator total (equivalent to typing + price).
