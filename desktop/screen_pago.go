@@ -45,6 +45,7 @@ type PagoScreen struct {
 
 	// UI widgets
 	opsDisplay    *widget.Label
+	opsScroll     *container.Scroll
 	totalDisplay  *canvas.Text
 	msgLabel      *widget.Label
 	descEntry     *widget.Entry
@@ -142,9 +143,14 @@ func (s *PagoScreen) build() fyne.CanvasObject {
 	s.descEntry = widget.NewEntry()
 	s.descEntry.SetPlaceHolder("Descripción (opcional)")
 
-	// ── Ops display ───────────────────────────────────────────────────────────
+	// ── Ops display (una sola línea: lo nuevo a la derecha, lo viejo se oculta) ─
 	s.opsDisplay = widget.NewLabel("")
 	s.opsDisplay.Alignment = fyne.TextAlignTrailing
+	s.opsDisplay.Wrapping = fyne.TextWrapOff
+	s.opsScroll = container.NewHScroll(s.opsDisplay)
+	s.opsScroll.Direction = container.ScrollHorizontalOnly
+	// Altura fija de una línea para que no empuje el teclado/historial
+	s.opsScroll.SetMinSize(fyne.NewSize(80, 28))
 
 	// ── Total display ─────────────────────────────────────────────────────────
 	s.totalDisplay = canvas.NewText("0.00 €", colorGray)
@@ -196,7 +202,7 @@ func (s *PagoScreen) build() fyne.CanvasObject {
 
 	leftPanel := container.NewBorder(
 		container.NewVBox(
-			cardHeader, s.descEntry, s.opsDisplay, totalRow, s.msgLabel,
+			cardHeader, s.descEntry, s.opsScroll, totalRow, s.msgLabel,
 			leftContent,
 		),
 		nil, nil, nil,
@@ -480,6 +486,19 @@ func (s *PagoScreen) refreshDisplay() {
 		ops += " (× pendiente)"
 	}
 	s.opsDisplay.SetText(ops)
+	s.opsDisplay.Refresh()
+	// Mostrar el final de la cinta (lo más reciente); al borrar reaparece lo anterior
+	if s.opsScroll != nil {
+		s.opsScroll.Refresh()
+		viewW := s.opsScroll.Size().Width
+		contentW := s.opsDisplay.MinSize().Width
+		if viewW > 0 && contentW > viewW {
+			s.opsScroll.Offset = fyne.NewPos(contentW-viewW, 0)
+		} else {
+			s.opsScroll.Offset = fyne.NewPos(0, 0)
+		}
+		s.opsScroll.Refresh()
+	}
 	t := s.totalCalculado()
 	if t > 0 {
 		s.totalDisplay.Color = colorGreen
