@@ -1,5 +1,5 @@
 // screen_home.go — Home screen.
-// - Card info persists 2 minutes after card removal (cancelled on new card).
+// - Card info persists 15 seconds after card removal (cancelled on new card).
 // - "Cobrar" button enabled only for TERMINAL role; "Recargar" for CAJA.
 // - Historial panel below action buttons.
 package main
@@ -17,7 +17,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
-const cardClearDelay = 2 * time.Minute
+const cardClearDelay = 15 * time.Second
 
 // HomeScreen is the main landing screen after login.
 type HomeScreen struct {
@@ -214,7 +214,7 @@ func (h *HomeScreen) OnCardDetected(uid string) {
 	go h.processCard(uid)
 }
 
-// OnCardRemoved schedules a 2-minute delayed clear.
+// OnCardRemoved schedules a delayed clear (cardClearDelay).
 func (h *HomeScreen) OnCardRemoved() {
 	h.mu.Lock()
 	if h.clearTimer != nil {
