@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode"
 
@@ -35,18 +36,21 @@ type RecargaScreen struct {
 	montoConfirmado float64
 	clienteUID      string
 	lastTxnUID      string // UID de la última recarga exitosa
+	leaveGen        atomic.Uint64
 
 	// UI
-	displayLbl    *canvas.Text
-	msgLabel      *widget.Label
-	descEntry     *widget.Entry
-	calcContainer *fyne.Container
-	nfcContainer  *fyne.Container
-	nfcHintLbl    *widget.Label
-	nfcAmountText *canvas.Text
-	nfcStatusLbl  *widget.Label
-	nfcCancelBtn  *widget.Button
-	historial     *HistorialWidget
+	displayLbl     *canvas.Text
+	msgLabel       *widget.Label
+	descEntry      *widget.Entry
+	cardNameLbl    *widget.Label
+	cardSaldoText  *canvas.Text
+	calcContainer  *fyne.Container
+	nfcContainer   *fyne.Container
+	nfcHintLbl     *widget.Label
+	nfcAmountText  *canvas.Text
+	nfcStatusLbl   *widget.Label
+	nfcCancelBtn   *widget.Button
+	historial      *HistorialWidget
 }
 
 func newRecargaScreen(win fyne.Window, getCardInfo func() map[string]interface{}, onBack func(uid string)) *RecargaScreen {
@@ -59,6 +63,15 @@ func (s *RecargaScreen) OnShow() {
 	s.exigirIdentificacion = info.ExigirIdentificacionRecarga
 	s.seguridadRecarga = strings.ToLower(strings.TrimSpace(info.SeguridadRecarga))
 
+	s.nfcWaiting = false
+	s.waitingOperador = false
+	s.lastTxnUID = ""
+	nfcSetCallbacks(NFCCallbacks{})
+	if s.calcContainer != nil {
+		s.showCalculator()
+	}
+	s.refreshCardHeader()
+
 	card := s.getCardInfo()
 	uid, _ := card["uid"].(string)
 	if uid != "" && s.historial != nil {
@@ -67,6 +80,48 @@ func (s *RecargaScreen) OnShow() {
 		s.historial.Clear()
 	}
 	s.setupKeyboard()
+}
+
+// OnHide clears keyboard and NFC wait when leaving via sidebar.
+func (s *RecargaScreen) OnHide() {
+	s.bumpLeaveGen()
+	s.nfcWaiting = false
+	s.waitingOperador = false
+	s.lastTxnUID = ""
+	s.clienteUID = ""
+	s.teardownKeyboard()
+	nfcSetCallbacks(NFCCallbacks{})
+	if s.calcContainer != nil {
+		s.showCalculator()
+	}
+}
+
+func (s *RecargaScreen) bumpLeaveGen() uint64 {
+	return s.leaveGen.Add(1)
+}
+
+func (s *RecargaScreen) currentLeaveGen() uint64 {
+	return s.leaveGen.Load()
+}
+
+func (s *RecargaScreen) refreshCardHeader() {
+	if s.cardNameLbl == nil || s.cardSaldoText == nil {
+		return
+	}
+	info := s.getCardInfo()
+	nombre, _ := info["nombre"].(string)
+	saldo, _ := info["saldo"].(float64)
+	if nombre == "" {
+		nombre = "Sin tarjeta leída"
+	}
+	s.cardNameLbl.SetText(nombre)
+	if saldo > 0 {
+		s.cardSaldoText.Color = colorGreen
+	} else {
+		s.cardSaldoText.Color = colorRed
+	}
+	s.cardSaldoText.Text = fmt.Sprintf("Saldo actual: %.2f €", saldo)
+	s.cardSaldoText.Refresh()
 }
 
 func (s *RecargaScreen) setupKeyboard() {
@@ -116,14 +171,14 @@ func (s *RecargaScreen) build() fyne.CanvasObject {
 	}
 
 	// ── Card info header ──────────────────────────────────────────────────────
-	nameLbl := widget.NewLabelWithStyle(nombre, fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+	s.cardNameLbl = widget.NewLabelWithStyle(nombre, fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 	saldoColor := colorRed
 	if saldo > 0 {
 		saldoColor = colorGreen
 	}
-	saldoText := canvas.NewText(fmt.Sprintf("Saldo actual: %.2f €", saldo), saldoColor)
-	saldoText.TextSize = 14
-	cardHeader := widget.NewCard("", "", container.NewVBox(nameLbl, saldoText))
+	s.cardSaldoText = canvas.NewText(fmt.Sprintf("Saldo actual: %.2f €", saldo), saldoColor)
+	s.cardSaldoText.TextSize = 14
+	cardHeader := widget.NewCard("", "", container.NewVBox(s.cardNameLbl, s.cardSaldoText))
 
 	// ── Description entry ─────────────────────────────────────────────────────
 	s.descEntry = widget.NewEntry()
@@ -248,6 +303,8 @@ func (s *RecargaScreen) processRecarga() {
 		s.setMessage("El monto debe ser mayor que cero.", colorRed)
 		return
 	}
+	s.bumpLeaveGen()
+	s.lastTxnUID = ""
 	s.montoConfirmado = monto
 	s.waitingOperador = false
 	s.clienteUID = ""
@@ -343,7 +400,7 @@ func (s *RecargaScreen) askPINAndPost() {
 		},
 		func(ok bool) {
 			if !ok {
-				s.finish()
+				s.abortNFCWait()
 				return
 			}
 			pin := pinEntry.Text
@@ -414,7 +471,11 @@ func (s *RecargaScreen) postRecarga(pin, uidOperador string) {
 	s.nfcCancelBtn.SetText("← Volver")
 	s.nfcCancelBtn.Enable()
 
+	gen := s.bumpLeaveGen()
 	time.Sleep(2500 * time.Millisecond)
+	if s.currentLeaveGen() != gen {
+		return
+	}
 	s.finish()
 }
 
@@ -459,11 +520,27 @@ func (s *RecargaScreen) handleRecargaError(err error, usedPIN, usedOperador bool
 	}
 }
 
+// cancelNFC: tras éxito → Inicio; en espera/error → calculadora con importe (D1/D2).
 func (s *RecargaScreen) cancelNFC() {
-	s.finish()
+	if s.lastTxnUID != "" {
+		s.finish()
+		return
+	}
+	s.abortNFCWait()
+}
+
+func (s *RecargaScreen) abortNFCWait() {
+	s.bumpLeaveGen()
+	s.nfcWaiting = false
+	s.waitingOperador = false
+	s.clienteUID = ""
+	s.lastTxnUID = ""
+	nfcSetCallbacks(NFCCallbacks{})
+	s.showCalculator()
 }
 
 func (s *RecargaScreen) finish() {
+	s.bumpLeaveGen()
 	uid := s.lastTxnUID
 	s.lastTxnUID = ""
 	s.clienteUID = ""

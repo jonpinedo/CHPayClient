@@ -271,10 +271,17 @@ func (mw *MainWindow) returnHome(uid string) {
 }
 
 // navigate switches to the given screen and updates NFC callbacks.
-// Screens are built once and cached; OnShow() is called each time.
+// Screens are built once and cached; OnHide() then OnShow() on each switch.
 func (mw *MainWindow) navigate(id string) {
 	if !mw.hasAccessTo(id) {
 		return
+	}
+
+	if mw.currentID != "" && mw.currentID != id {
+		type hider interface{ OnHide() }
+		if h, ok := mw.screenByID(mw.currentID).(hider); ok {
+			h.OnHide()
+		}
 	}
 
 	// Build screen once, then cache

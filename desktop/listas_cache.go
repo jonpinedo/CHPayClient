@@ -4,7 +4,10 @@ package main
 import (
 	"fmt"
 	"sync"
+	"time"
 )
+
+const listasCacheTTL = 5 * time.Minute
 
 var (
 	listasCache      []ListaPrecios        // available lists for the chapter
@@ -12,10 +15,11 @@ var (
 	listasIconos     map[int][]byte        // itemID → icon bytes
 	listasCacheMu    sync.RWMutex
 	listasCacheCapID int
+	listasCacheAt    time.Time
 )
 
 // listasLoadCache loads all price lists and their items for the given chapter.
-// Called once after successful auth in showMainApp.
+// Called once after successful auth in showMainApp, and on stale refresh.
 func listasLoadCache(capituloID int) {
 	listasCacheMu.Lock()
 	defer listasCacheMu.Unlock()
@@ -31,6 +35,7 @@ func listasLoadCache(capituloID int) {
 		return
 	}
 	listasCache = listas
+	listasCacheAt = time.Now()
 
 	// Pre-load detail and icons for each list
 	for _, l := range listas {
@@ -40,7 +45,6 @@ func listasLoadCache(capituloID int) {
 		}
 		listasDetalle[l.ID] = detalle
 
-		// Load icons in background
 		for _, item := range detalle.Items {
 			if item.TieneIcono {
 				ico, _ := apiGetItemIcono(capituloID, l.ID, item.ID)
@@ -50,6 +54,24 @@ func listasLoadCache(capituloID int) {
 			}
 		}
 	}
+}
+
+// listasRefreshIfStale reloads the cache when TTL expired or chapter changed.
+// Returns true if the cache was reloaded.
+func listasRefreshIfStale(capituloID int) bool {
+	if !listasIsStale(capituloID) {
+		return false
+	}
+	listasLoadCache(capituloID)
+	return true
+}
+
+func listasIsStale(capituloID int) bool {
+	listasCacheMu.RLock()
+	defer listasCacheMu.RUnlock()
+	return capituloID != listasCacheCapID ||
+		listasCacheAt.IsZero() ||
+		time.Since(listasCacheAt) >= listasCacheTTL
 }
 
 // listasGetAll returns cached list headers.

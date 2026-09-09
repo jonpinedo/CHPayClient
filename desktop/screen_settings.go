@@ -16,6 +16,7 @@ type SettingsScreen struct {
 	urlEntry  *widget.Entry
 	urlMsg    *widget.Label
 	nameEntry *widget.Entry
+	nameLbl   *widget.Label
 
 	nfcReaderStatus *widget.Label
 	nfcReaderSelect *widget.Select
@@ -32,15 +33,19 @@ func (s *SettingsScreen) build() fyne.CanvasObject {
 		"Configuración", fyne.TextAlignLeading, fyne.TextStyle{Bold: true},
 	)
 
+	body := container.NewVBox(
+		s.buildAPISection(),
+		s.buildNFCSection(),
+		s.buildDeviceSection(),
+		s.buildCredentialsSection(),
+	)
+	scroll := container.NewScroll(container.NewPadded(body))
+	scroll.Direction = container.ScrollVerticalOnly
+
 	return container.NewBorder(
 		container.NewPadded(titleLbl),
 		nil, nil, nil,
-		container.NewPadded(container.NewVBox(
-			s.buildAPISection(),
-			s.buildNFCSection(),
-			s.buildDeviceSection(),
-			s.buildCredentialsSection(),
-		)),
+		scroll,
 	)
 }
 
@@ -204,17 +209,20 @@ func (s *SettingsScreen) buildDeviceSection() fyne.CanvasObject {
 	s.nameEntry = widget.NewEntry()
 	s.nameEntry.SetText(configGetDeviceName())
 
+	s.nameLbl = widget.NewLabel(deviceName)
+
 	saveNameBtn := widget.NewButton("💾  Guardar nombre", func() {
 		n := strings.TrimSpace(s.nameEntry.Text)
 		if n != "" {
 			configSetDeviceName(n)
+			s.nameLbl.SetText(n)
 		}
 	})
 	saveNameBtn.Importance = widget.HighImportance
 
 	form := container.NewVBox(
 		container.NewGridWithColumns(2,
-			widget.NewLabel("Nombre:"), widget.NewLabel(deviceName),
+			widget.NewLabel("Nombre:"), s.nameLbl,
 			widget.NewLabel(idLabel), widget.NewLabel(idDisplay),
 			widget.NewLabel("Estado:"), widget.NewLabel(statusInfo[0]),
 		),

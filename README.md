@@ -35,6 +35,7 @@ cd desktop
 - [API](doc/api.md) — Referencia completa de endpoints
 - [Desarrollo](doc/desarrollo.md) — Build, versiones, requisitos
 - [Actualizaciones](doc/actualizaciones.md) — Sistema OTA y scripts de publicación
+- [Specs Desktop UI](doc/specs/desktop-ui-bugs.md) — Bugs UI/transiciones y plan de corrección
 - Activar NFC en Ajustes > Conexiones > NFC
 - Revisar permisos en AndroidManifest.xml
 ---

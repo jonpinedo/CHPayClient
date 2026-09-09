@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -42,19 +43,22 @@ type PagoScreen struct {
 	nfcWaiting      bool
 	montoConfirmado float64
 	lastTxnUID      string // UID del último cobro exitoso (para Volver / auto-retorno)
+	leaveGen        atomic.Uint64 // invalida auto-retorno pendiente
 
 	// UI widgets
-	opsDisplay    *widget.Label
-	opsScroll     *container.Scroll
-	totalDisplay  *canvas.Text
-	msgLabel      *widget.Label
-	descEntry     *widget.Entry
-	calcContainer *fyne.Container
-	nfcContainer  *fyne.Container
-	nfcAmountText *canvas.Text
-	nfcStatusLbl  *widget.Label
-	nfcCancelBtn  *widget.Button
-	historial     *HistorialWidget
+	opsDisplay     *widget.Label
+	opsScroll      *container.Scroll
+	totalDisplay   *canvas.Text
+	msgLabel       *widget.Label
+	descEntry      *widget.Entry
+	cardNameLbl    *widget.Label
+	cardSaldoText  *canvas.Text
+	calcContainer  *fyne.Container
+	nfcContainer   *fyne.Container
+	nfcAmountText  *canvas.Text
+	nfcStatusLbl   *widget.Label
+	nfcCancelBtn   *widget.Button
+	historial      *HistorialWidget
 
 	// Price list panel
 	listaSelect   *widget.Select
@@ -69,6 +73,15 @@ func newPagoScreen(win fyne.Window, getCardInfo func() map[string]interface{}, o
 
 // OnShow is called when the screen becomes active.
 func (s *PagoScreen) OnShow() {
+	s.nfcWaiting = false
+	s.lastTxnUID = ""
+	nfcSetCallbacks(NFCCallbacks{})
+	if s.calcContainer != nil {
+		s.showCalculator()
+	}
+	s.refreshCardHeader()
+	s.refreshPriceListsIfNeeded()
+
 	info := s.getCardInfo()
 	uid, _ := info["uid"].(string)
 	if uid != "" && s.historial != nil {
@@ -77,6 +90,85 @@ func (s *PagoScreen) OnShow() {
 		s.historial.Clear()
 	}
 	s.setupKeyboard()
+}
+
+// OnHide clears keyboard and NFC wait when leaving via sidebar.
+func (s *PagoScreen) OnHide() {
+	s.bumpLeaveGen()
+	s.nfcWaiting = false
+	s.lastTxnUID = ""
+	s.teardownKeyboard()
+	nfcSetCallbacks(NFCCallbacks{})
+	if s.calcContainer != nil {
+		s.showCalculator()
+	}
+}
+
+func (s *PagoScreen) bumpLeaveGen() uint64 {
+	return s.leaveGen.Add(1)
+}
+
+func (s *PagoScreen) currentLeaveGen() uint64 {
+	return s.leaveGen.Load()
+}
+
+func (s *PagoScreen) refreshCardHeader() {
+	if s.cardNameLbl == nil || s.cardSaldoText == nil {
+		return
+	}
+	info := s.getCardInfo()
+	nombre, _ := info["nombre"].(string)
+	saldo, _ := info["saldo"].(float64)
+	if nombre == "" {
+		nombre = "Sin tarjeta leída"
+	}
+	s.cardNameLbl.SetText(nombre)
+	if saldo > 0 {
+		s.cardSaldoText.Color = colorGreen
+	} else {
+		s.cardSaldoText.Color = colorRed
+	}
+	s.cardSaldoText.Text = fmt.Sprintf("Saldo: %.2f €", saldo)
+	s.cardSaldoText.Refresh()
+}
+
+func (s *PagoScreen) refreshPriceListsIfNeeded() {
+	info := apiGetDeviceInfo()
+	if info.CapituloID == 0 || !listasIsStale(info.CapituloID) {
+		return
+	}
+	capID := info.CapituloID
+	go func() {
+		listasLoadCache(capID)
+		if s.listaSelect == nil || s.itemsPanel == nil {
+			return
+		}
+		listas := listasGetAll()
+		if len(listas) == 0 {
+			return
+		}
+		options := make([]string, len(listas))
+		for i, l := range listas {
+			options[i] = l.Nombre
+		}
+		prev := s.listaSelect.Selected
+		s.listaSelect.Options = options
+		found := false
+		for _, o := range options {
+			if o == prev {
+				s.listaSelect.SetSelected(prev)
+				found = true
+				break
+			}
+		}
+		if !found {
+			s.listaSelect.SetSelected(options[0])
+		}
+		s.listaSelect.Refresh()
+		if s.selectedLista != 0 {
+			s.renderItems(s.selectedLista)
+		}
+	}()
 }
 
 func (s *PagoScreen) setupKeyboard() {
@@ -130,14 +222,14 @@ func (s *PagoScreen) build() fyne.CanvasObject {
 	}
 
 	// ── Card info header ──────────────────────────────────────────────────────
-	nameLbl := widget.NewLabelWithStyle(nombre, fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+	s.cardNameLbl = widget.NewLabelWithStyle(nombre, fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 	saldoColor := colorRed
 	if saldo > 0 {
 		saldoColor = colorGreen
 	}
-	saldoText := canvas.NewText(fmt.Sprintf("Saldo: %.2f €", saldo), saldoColor)
-	saldoText.TextSize = 14
-	cardHeader := widget.NewCard("", "", container.NewVBox(nameLbl, saldoText))
+	s.cardSaldoText = canvas.NewText(fmt.Sprintf("Saldo: %.2f €", saldo), saldoColor)
+	s.cardSaldoText.TextSize = 14
+	cardHeader := widget.NewCard("", "", container.NewVBox(s.cardNameLbl, s.cardSaldoText))
 
 	// ── Description entry ─────────────────────────────────────────────────────
 	s.descEntry = widget.NewEntry()
@@ -533,6 +625,8 @@ func (s *PagoScreen) processPago() {
 		s.setMessage("Ingresa un monto mayor que cero.", colorRed)
 		return
 	}
+	s.bumpLeaveGen()
+	s.lastTxnUID = ""
 	s.montoConfirmado = monto
 	s.showNFCWait()
 
@@ -591,21 +685,41 @@ func (s *PagoScreen) validateAndPay(uid string) {
 	s.nfcCancelBtn.SetText("← Volver")
 	s.nfcCancelBtn.Enable()
 
+	gen := s.bumpLeaveGen()
 	time.Sleep(2500 * time.Millisecond)
+	if s.currentLeaveGen() != gen {
+		return
+	}
 	s.leaveToHome()
 }
 
+// cancelNFC: tras éxito → Inicio; en espera/error → calculadora con importe (D1/D2).
 func (s *PagoScreen) cancelNFC() {
-	s.leaveToHome()
+	if s.lastTxnUID != "" {
+		s.leaveToHome()
+		return
+	}
+	s.abortNFCWait()
+}
+
+// abortNFCWait vuelve a la calculadora sin borrar el importe ni ir a Inicio.
+func (s *PagoScreen) abortNFCWait() {
+	s.bumpLeaveGen()
+	s.nfcWaiting = false
+	s.lastTxnUID = ""
+	nfcSetCallbacks(NFCCallbacks{})
+	s.showCalculator()
 }
 
 func (s *PagoScreen) leaveToHome() {
+	s.bumpLeaveGen()
 	uid := s.lastTxnUID
 	s.lastTxnUID = ""
 	s.nfcWaiting = false
 	s.pressClear()
 	s.showCalculator()
 	s.teardownKeyboard()
+	nfcSetCallbacks(NFCCallbacks{})
 	if s.onBack != nil {
 		s.onBack(uid)
 	}

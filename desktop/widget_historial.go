@@ -81,6 +81,7 @@ func (h *HistorialWidget) Load(uid string) {
 		}
 		h.vbox.Objects = objects
 		h.vbox.Refresh()
+		h.resetScroll()
 	}()
 }
 
@@ -94,6 +95,15 @@ func (h *HistorialWidget) showEmpty(text string) {
 	lbl.Alignment = fyne.TextAlignCenter
 	h.vbox.Objects = []fyne.CanvasObject{lbl}
 	h.vbox.Refresh()
+	h.resetScroll()
+}
+
+func (h *HistorialWidget) resetScroll() {
+	if h.scroll == nil {
+		return
+	}
+	h.scroll.Offset = fyne.NewPos(0, 0)
+	h.scroll.Refresh()
 }
 
 func buildHistorialRow(t Transaccion) fyne.CanvasObject {

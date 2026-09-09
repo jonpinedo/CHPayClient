@@ -131,7 +131,7 @@ func (c *AppController) showMainApp() {
 			c.showMandatoryUpdate(update, bearer)
 			return
 		}
-		// Guardar para mostrar banner en home (no implementado aún, se ignora)
+		// Banner opcional en la ventana principal (MainWindow.buildUpdateBanner)
 		c.pendingUpdate = update
 	}
 

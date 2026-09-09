@@ -18,6 +18,7 @@ type AdminScreen struct {
 	win               fyne.Window
 	onTarjetaAsociada func(uid string)
 	tabs              *container.AppTabs
+	nfcDialog         dialog.Dialog
 
 	// Crear Socio tab
 	nombreEntry  *widget.Entry
@@ -70,6 +71,10 @@ func (s *AdminScreen) build() fyne.CanvasObject {
 func (s *AdminScreen) OnShow() {
 	s.nfcWaiting = false
 	nfcSetCallbacks(NFCCallbacks{})
+	if s.nfcDialog != nil {
+		s.nfcDialog.Hide()
+		s.nfcDialog = nil
+	}
 	if s.nombreEntry != nil {
 		s.limpiarCrear()
 	}
@@ -81,6 +86,22 @@ func (s *AdminScreen) OnShow() {
 	}
 	if s.tabs != nil {
 		s.tabs.SelectIndex(0)
+	}
+}
+
+// OnHide aborts NFC association wait when leaving via sidebar.
+func (s *AdminScreen) OnHide() {
+	s.nfcWaiting = false
+	nfcSetCallbacks(NFCCallbacks{})
+	if s.nfcDialog != nil {
+		s.nfcDialog.Hide()
+		s.nfcDialog = nil
+	}
+	if s.asocNFCFrame != nil {
+		s.asocNFCFrame.Hide()
+		if s.asocBtn != nil {
+			s.asocBtn.Enable()
+		}
 	}
 }
 
@@ -127,7 +148,9 @@ func (s *AdminScreen) buildCrearSocioTab() fyne.CanvasObject {
 		s.irAsociarBtn,
 		s.crearOtroBtn,
 	)
-	return container.NewPadded(form)
+	scroll := container.NewScroll(container.NewPadded(form))
+	scroll.Direction = container.ScrollVerticalOnly
+	return scroll
 }
 
 func (s *AdminScreen) doCrearSocio() {
@@ -217,6 +240,7 @@ func (s *AdminScreen) showNFCDialog(numeroSocio int) {
 		s.nfcWaiting = false
 		nfcSetCallbacks(NFCCallbacks{})
 		dlg.Hide()
+		s.nfcDialog = nil
 	})
 	cancelBtn.Importance = widget.LowImportance
 
@@ -224,6 +248,7 @@ func (s *AdminScreen) showNFCDialog(numeroSocio int) {
 	dlg = dialog.NewCustomWithoutButtons(
 		"Asociar Tarjeta NFC", withCancel, s.win,
 	)
+	s.nfcDialog = dlg
 	dlg.Show()
 
 	s.nfcWaiting = true
@@ -241,11 +266,13 @@ func (s *AdminScreen) showNFCDialog(numeroSocio int) {
 				if err != nil {
 					statusLbl.SetText("❌ " + err.Error())
 					cancelBtn.Enable()
+					s.nfcWaiting = true // permitir reintento o cancelar
 					return
 				}
 				statusLbl.SetText("✅ Tarjeta asociada correctamente")
 				time.Sleep(1500 * time.Millisecond)
 				dlg.Hide()
+				s.nfcDialog = nil
 				nfcSetCallbacks(NFCCallbacks{})
 				if s.onTarjetaAsociada != nil {
 					s.onTarjetaAsociada(uid)
@@ -303,7 +330,9 @@ func (s *AdminScreen) buildAsociarTab() fyne.CanvasObject {
 		s.cargarSocios()
 	}()
 
-	return container.NewPadded(form)
+	scroll := container.NewScroll(container.NewPadded(form))
+	scroll.Direction = container.ScrollVerticalOnly
+	return scroll
 }
 
 func (s *AdminScreen) cargarSocios() {
