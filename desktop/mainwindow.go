@@ -125,7 +125,7 @@ func (mw *MainWindow) build() fyne.CanvasObject {
 		if !mw.hasAccessTo(item.id) {
 			continue
 		}
-		btn := widget.NewButton(item.label, func() {
+		btn := newButton(item.label, func() {
 			mw.navigate(item.id)
 		})
 		btn.Importance = widget.LowImportance
@@ -183,12 +183,12 @@ func (mw *MainWindow) buildUpdateBanner() fyne.CanvasObject {
 	msgLbl := widget.NewLabel("Nueva versión " + mw.pendingUpdate.VersionName + " disponible")
 	msgLbl.TextStyle = fyne.TextStyle{Bold: true}
 
-	installBtn := widget.NewButton("Instalar", func() {
+	installBtn := newButton("Instalar", func() {
 		mw.startOptionalUpdate()
 	})
 	installBtn.Importance = widget.HighImportance
 
-	dismissBtn := widget.NewButton("Ahora no", func() {
+	dismissBtn := newButton("Ahora no", func() {
 		mw.dismissUpdateBanner()
 	})
 	dismissBtn.Importance = widget.LowImportance

@@ -187,7 +187,7 @@ func (c *AppController) showConnectionError(msg string, retryFn func()) {
 	hint := widget.NewLabel("Verifica que Ziti Desktop Edge esté activo.")
 	hint.Wrapping = fyne.TextWrapWord
 
-	retryBtn := widget.NewButton("🔄  Reintentar", func() {
+	retryBtn := newButton("🔄  Reintentar", func() {
 		retryFn()
 	})
 	retryBtn.Importance = widget.HighImportance
@@ -215,7 +215,7 @@ func (c *AppController) showBlockedNoCapitulo() {
 	msgLabel.Wrapping = fyne.TextWrapWord
 	msgLabel.Alignment = fyne.TextAlignCenter
 
-	retryBtn := widget.NewButton("🔄  Reintentar", func() {
+	retryBtn := newButton("🔄  Reintentar", func() {
 		c.win.SetFixedSize(false)
 		c.showMainApp()
 	})
@@ -255,10 +255,8 @@ func (c *AppController) showMandatoryUpdate(update *UpdateInfo, bearer string) {
 	progressText.Alignment = fyne.TextAlignCenter
 	progressText.Hide()
 
-	updateBtn := widget.NewButton("⬇️  Descargar e instalar", nil)
-	updateBtn.Importance = widget.HighImportance
-
-	updateBtn.OnTapped = func() {
+	var updateBtn *widget.Button
+	updateBtn = newButton("⬇️  Descargar e instalar", func() {
 		updateBtn.Disable()
 		updateBtn.SetText("Descargando...")
 		progressBar.Show()
@@ -289,7 +287,8 @@ func (c *AppController) showMandatoryUpdate(update *UpdateInfo, bearer string) {
 			}
 			// Si applyUpdate tiene éxito, la app se cierra
 		}()
-	}
+	})
+	updateBtn.Importance = widget.HighImportance
 
 	content := container.NewCenter(
 		container.NewVBox(

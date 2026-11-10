@@ -188,7 +188,7 @@ func (s *RecargaScreen) build() fyne.CanvasObject {
 	quickBtns := make([]fyne.CanvasObject, len(montosRapidos))
 	for i, m := range montosRapidos {
 		m := m
-		btn := widget.NewButton(fmt.Sprintf("%g €", m), func() { s.selectQuick(m) })
+		btn := newButton(fmt.Sprintf("%g €", m), func() { s.selectQuick(m) })
 		btn.Importance = widget.SuccessImportance
 		quickBtns[i] = btn
 	}
@@ -221,7 +221,7 @@ func (s *RecargaScreen) build() fyne.CanvasObject {
 	s.nfcStatusLbl.Alignment = fyne.TextAlignCenter
 	s.nfcStatusLbl.Wrapping = fyne.TextWrapWord
 
-	s.nfcCancelBtn = widget.NewButton("Cancelar", s.cancelNFC)
+	s.nfcCancelBtn = newButton("Cancelar", s.cancelNFC)
 	s.nfcCancelBtn.Importance = widget.LowImportance
 
 	s.nfcContainer = container.NewVBox(
@@ -586,10 +586,10 @@ func (s *RecargaScreen) setMessage(text string, _ interface{}) {
 func (s *RecargaScreen) buildKeypad() fyne.CanvasObject {
 	num := func(t string) *widget.Button {
 		t2 := t
-		return widget.NewButton(t2, func() { s.pressNum(t2) })
+		return newButton(t2, func() { s.pressNum(t2) })
 	}
 	op := func(t string, imp widget.ButtonImportance, fn func()) *widget.Button {
-		b := widget.NewButton(t, fn)
+		b := newButton(t, fn)
 		b.Importance = imp
 		return b
 	}

@@ -272,7 +272,7 @@ func (s *PagoScreen) build() fyne.CanvasObject {
 	s.nfcStatusLbl.Alignment = fyne.TextAlignCenter
 	s.nfcStatusLbl.Wrapping = fyne.TextWrapWord
 
-	s.nfcCancelBtn = widget.NewButton("Cancelar", s.cancelNFC)
+	s.nfcCancelBtn = newButton("Cancelar", s.cancelNFC)
 	s.nfcCancelBtn.Importance = widget.LowImportance
 
 	s.nfcContainer = container.NewVBox(
@@ -393,7 +393,7 @@ func (s *PagoScreen) renderItems(listaID int) {
 			row = container.NewBorder(nil, nil, nil, priceTxt, nameTxt)
 		}
 
-		btn := widget.NewButton("", func() {
+		btn := newButton("", func() {
 			s.addItemToTotal(item.Nombre, precio)
 		})
 		btn.Importance = widget.LowImportance
@@ -755,11 +755,11 @@ func (s *PagoScreen) setMessage(text string, col interface{}) {
 func (s *PagoScreen) buildKeypad() fyne.CanvasObject {
 	num := func(t string) *widget.Button {
 		t2 := t
-		b := widget.NewButton(t2, func() { s.pressNum(t2) })
+		b := newButton(t2, func() { s.pressNum(t2) })
 		return b
 	}
 	op := func(t string, imp widget.ButtonImportance, fn func()) *widget.Button {
-		b := widget.NewButton(t, fn)
+		b := newButton(t, fn)
 		b.Importance = imp
 		return b
 	}

@@ -124,13 +124,13 @@ func (s *AdminScreen) buildCrearSocioTab() fyne.CanvasObject {
 	s.crearMsg = widget.NewLabel("")
 	s.crearMsg.Wrapping = fyne.TextWrapWord
 
-	s.crearBtn = widget.NewButton("👤  Crear Socio", s.doCrearSocio)
+	s.crearBtn = newButton("👤  Crear Socio", s.doCrearSocio)
 	s.crearBtn.Importance = widget.HighImportance
 
-	s.irAsociarBtn = widget.NewButton("💳  Asociar Tarjeta NFC al nuevo socio", s.irAAsociarNuevo)
+	s.irAsociarBtn = newButton("💳  Asociar Tarjeta NFC al nuevo socio", s.irAAsociarNuevo)
 	s.irAsociarBtn.Disable()
 
-	s.crearOtroBtn = widget.NewButton("➕  Crear otro socio", s.limpiarCrear)
+	s.crearOtroBtn = newButton("➕  Crear otro socio", s.limpiarCrear)
 	s.crearOtroBtn.Importance = widget.LowImportance
 	s.crearOtroBtn.Disable()
 
@@ -236,7 +236,7 @@ func (s *AdminScreen) showNFCDialog(numeroSocio int) {
 	)
 
 	var dlg dialog.Dialog
-	cancelBtn := widget.NewButton("Cancelar", func() {
+	cancelBtn := newButton("Cancelar", func() {
 		s.nfcWaiting = false
 		nfcSetCallbacks(NFCCallbacks{})
 		dlg.Hide()
@@ -287,7 +287,7 @@ func (s *AdminScreen) showNFCDialog(numeroSocio int) {
 func (s *AdminScreen) buildAsociarTab() fyne.CanvasObject {
 	s.sociosSelect = widget.NewSelect([]string{"Cargando..."}, nil)
 
-	refreshBtn := widget.NewButton("🔄  Actualizar lista", s.cargarSocios)
+	refreshBtn := newButton("🔄  Actualizar lista", s.cargarSocios)
 	refreshBtn.Importance = widget.LowImportance
 
 	s.uidEntry = widget.NewEntry()
@@ -301,7 +301,7 @@ func (s *AdminScreen) buildAsociarTab() fyne.CanvasObject {
 	nfcIcon.Alignment = fyne.TextAlignCenter
 	s.asocStatus = widget.NewLabel("Acerca la tarjeta NFC al lector...")
 	s.asocStatus.Alignment = fyne.TextAlignCenter
-	asocCancelBtn := widget.NewButton("Cancelar", s.cancelAsocNFC)
+	asocCancelBtn := newButton("Cancelar", s.cancelAsocNFC)
 	asocCancelBtn.Importance = widget.LowImportance
 	s.asocNFCFrame = container.NewVBox(
 		container.NewCenter(nfcIcon),
@@ -310,7 +310,7 @@ func (s *AdminScreen) buildAsociarTab() fyne.CanvasObject {
 	)
 	s.asocNFCFrame.Hide()
 
-	s.asocBtn = widget.NewButton("💳  Asociar Tarjeta", s.doAsociarTarjeta)
+	s.asocBtn = newButton("💳  Asociar Tarjeta", s.doAsociarTarjeta)
 	s.asocBtn.Importance = widget.HighImportance
 
 	form := container.NewVBox(

@@ -58,10 +58,10 @@ func (s *SettingsScreen) buildAPISection() fyne.CanvasObject {
 	s.urlMsg = widget.NewLabel("")
 	s.urlMsg.Alignment = fyne.TextAlignLeading
 
-	saveBtn := widget.NewButton("💾  Guardar URL", s.saveURL)
+	saveBtn := newButton("💾  Guardar URL", s.saveURL)
 	saveBtn.Importance = widget.HighImportance
 
-	testBtn := widget.NewButton("🔍  Probar conexión", s.testConnection)
+	testBtn := newButton("🔍  Probar conexión", s.testConnection)
 	testBtn.Importance = widget.LowImportance
 
 	buttons := container.NewHBox(saveBtn, testBtn)
@@ -211,7 +211,7 @@ func (s *SettingsScreen) buildDeviceSection() fyne.CanvasObject {
 
 	s.nameLbl = widget.NewLabel(deviceName)
 
-	saveNameBtn := widget.NewButton("💾  Guardar nombre", func() {
+	saveNameBtn := newButton("💾  Guardar nombre", func() {
 		n := strings.TrimSpace(s.nameEntry.Text)
 		if n != "" {
 			configSetDeviceName(n)
@@ -242,7 +242,7 @@ func (s *SettingsScreen) buildCredentialsSection() fyne.CanvasObject {
 	)
 	note.Wrapping = fyne.TextWrapWord
 
-	clearBtn := widget.NewButton("🗑  Limpiar credenciales y re-registrar", func() {
+	clearBtn := newButton("🗑  Limpiar credenciales y re-registrar", func() {
 		confirm := dialog.NewConfirm(
 			"¿Limpiar credenciales?",
 			"Se eliminará el token permanente y tendrás que registrar el dispositivo de nuevo.",

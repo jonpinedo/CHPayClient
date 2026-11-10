@@ -63,11 +63,11 @@ func (s *RegistrationScreen) build() fyne.CanvasObject {
 	s.statusLabel.Alignment = fyne.TextAlignCenter
 	s.statusLabel.Wrapping = fyne.TextWrapWord
 
-	s.registerBtn = widget.NewButton("📝  Solicitar Registro", s.doRequestRegistration)
+	s.registerBtn = newButton("📝  Solicitar Registro", s.doRequestRegistration)
 	s.registerBtn.Importance = widget.HighImportance
 	s.registerBtn.Disable() // Disabled until capítulos load
 
-	s.authorizeBtn = widget.NewButton("✅  Ya fui aprobado — Autorizar", s.doAuthorize)
+	s.authorizeBtn = newButton("✅  Ya fui aprobado — Autorizar", s.doAuthorize)
 	s.authorizeBtn.Importance = widget.SuccessImportance
 
 	// If already pending, show a reminder
@@ -107,12 +107,12 @@ func (s *RegistrationScreen) loadCapitulos() {
 		s.statusLabel.SetText("❌ Error al cargar capítulos: " + err.Error() + "\nPulsa 'Reintentar'.")
 		s.registerBtn.SetText("🔄  Reintentar cargar capítulos")
 		s.registerBtn.Enable()
-		s.registerBtn.OnTapped = func() {
+		s.registerBtn.OnTapped = debounceTap(func() {
 			s.statusLabel.SetText("")
 			s.registerBtn.Disable()
 			s.registerBtn.SetText("📝  Solicitar Registro")
 			go s.loadCapitulos()
-		}
+		})
 		return
 	}
 
@@ -129,7 +129,7 @@ func (s *RegistrationScreen) loadCapitulos() {
 	s.capSelect.PlaceHolder = "Selecciona capítulo (opcional)"
 
 	// Restore register button to normal
-	s.registerBtn.OnTapped = s.doRequestRegistration
+	s.registerBtn.OnTapped = debounceTap(s.doRequestRegistration)
 	s.registerBtn.Enable()
 	s.registerBtn.SetText("📝  Solicitar Registro")
 }

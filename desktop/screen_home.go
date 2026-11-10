@@ -132,13 +132,13 @@ func (h *HomeScreen) build() fyne.CanvasObject {
 	}
 
 	if hasTerminal {
-		h.cobrarBtn = widget.NewButton("💶  Cobrar", h.onGoPago)
+		h.cobrarBtn = newButton("💶  Cobrar", h.onGoPago)
 		h.cobrarBtn.Importance = widget.DangerImportance
 		h.cobrarBtn.Disable()
 		actionItems = append(actionItems, h.cobrarBtn)
 	}
 	if hasCaja {
-		h.recargarBtn = widget.NewButton("💰  Recargar", h.onGoRecarga)
+		h.recargarBtn = newButton("💰  Recargar", h.onGoRecarga)
 		h.recargarBtn.Importance = widget.SuccessImportance
 		h.recargarBtn.Disable()
 		actionItems = append(actionItems, h.recargarBtn)
