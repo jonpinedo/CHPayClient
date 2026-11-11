@@ -2,8 +2,8 @@
 setlocal
 
 :: ── Versión de la aplicación ──────────────────────────────────────────────────
-set VERSION=1.3.5
-set VERSION_CODE=22
+set VERSION=1.3.6
+set VERSION_CODE=23
 
 echo [CHPay] Building CHPay Desktop v%VERSION% (code: %VERSION_CODE%)
 echo.

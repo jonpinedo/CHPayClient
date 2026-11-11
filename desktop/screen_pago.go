@@ -5,6 +5,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"image/color"
 	"strconv"
 	"strings"
 	"sync"
@@ -60,12 +61,27 @@ type PagoScreen struct {
 	nfcCancelBtn   *widget.Button
 	historial      *HistorialWidget
 
-	// Price list panel
+	// Price list panel (grid wrap: ~3 columnas según ancho del panel)
 	listaSelect   *widget.Select
 	itemsPanel    *fyne.Container
 	itemsScroll   *container.Scroll
 	selectedLista int
 }
+
+// Celda tipo botón blanco: imagen grande + una línea de texto discreta.
+// Con panel ~400px → ~3 columnas; al estrechar baja a 2/1.
+const (
+	cartaCellW    float32 = 138
+	cartaCellH    float32 = 128
+	cartaIconSize float32 = 100
+)
+
+var (
+	cartaBtnBg     = color.RGBA{R: 255, G: 255, B: 255, A: 255}
+	cartaTextDark  = color.RGBA{R: 45, G: 45, B: 45, A: 255}
+	cartaPriceDark = color.RGBA{R: 20, G: 20, B: 20, A: 255}
+	cartaPlacehold = color.RGBA{R: 235, G: 235, B: 235, A: 255}
+)
 
 func newPagoScreen(win fyne.Window, getCardInfo func() map[string]interface{}, onBack func(uid string)) *PagoScreen {
 	return &PagoScreen{win: win, getCardInfo: getCardInfo, onBack: onBack}
@@ -326,9 +342,8 @@ func (s *PagoScreen) buildPriceListPanel() fyne.CanvasObject {
 		options[i] = l.Nombre
 	}
 
-	s.itemsPanel = container.NewVBox()
+	s.itemsPanel = container.New(layout.NewGridWrapLayout(fyne.NewSize(cartaCellW, cartaCellH)))
 	// Scroll acotado por el Border/HSplit (mismo patrón que el historial).
-	// No fijar MinSize alto: si no, el panel crece con el contenido y no aparece barra.
 	s.itemsScroll = container.NewScroll(s.itemsPanel)
 	s.itemsScroll.Direction = container.ScrollVerticalOnly
 
@@ -356,7 +371,7 @@ func (s *PagoScreen) buildPriceListPanel() fyne.CanvasObject {
 	)
 }
 
-// renderItems populates the items panel with buttons for the selected list.
+// renderItems populates the price-list grid for the selected list.
 func (s *PagoScreen) renderItems(listaID int) {
 	s.itemsPanel.RemoveAll()
 
@@ -370,43 +385,72 @@ func (s *PagoScreen) renderItems(listaID int) {
 	for _, item := range detalle.Items {
 		item := item // capture
 		precio, _ := strconv.ParseFloat(item.Precio, 64)
-
-		// Build row: [icon] Name ........... Price
-		var row fyne.CanvasObject
-
-		nameTxt := widget.NewLabel(item.Nombre)
-		nameTxt.Wrapping = fyne.TextTruncate
-		priceTxt := widget.NewLabelWithStyle(
-			fmt.Sprintf("%.2f €", precio),
-			fyne.TextAlignTrailing,
-			fyne.TextStyle{Bold: true},
-		)
-
-		// Try to render icon
-		iconData := listasGetIcono(item.ID)
-		if len(iconData) > 0 {
-			img := canvas.NewImageFromReader(bytes.NewReader(iconData), fmt.Sprintf("item_%d", item.ID))
-			img.SetMinSize(fyne.NewSize(24, 24))
-			img.FillMode = canvas.ImageFillContain
-			row = container.NewBorder(nil, nil, img, priceTxt, nameTxt)
-		} else {
-			row = container.NewBorder(nil, nil, nil, priceTxt, nameTxt)
-		}
-
-		btn := newButton("", func() {
-			s.addItemToTotal(item.Nombre, precio)
-		})
-		btn.Importance = widget.LowImportance
-
-		// Stack the row content over an invisible button for tap handling
-		tappable := container.NewStack(btn, container.New(layout.NewPaddedLayout(), row))
-		s.itemsPanel.Add(tappable)
+		s.itemsPanel.Add(s.buildCartaCell(item, precio))
 	}
 	s.itemsPanel.Refresh()
 	if s.itemsScroll != nil {
 		s.itemsScroll.Offset = fyne.NewPos(0, 0)
 		s.itemsScroll.Refresh()
 	}
+}
+
+// buildCartaCell: botón blanco, imagen maximizada, nombre+precio en una sola línea.
+func (s *PagoScreen) buildCartaCell(item ItemPrecio, precio float64) fyne.CanvasObject {
+	iconObj := s.buildCartaIcon(item)
+
+	// canvas.Text evita el padding grande de widget.Label
+	nameTxt := canvas.NewText(item.Nombre, cartaTextDark)
+	nameTxt.TextSize = 11
+	nameTxt.Alignment = fyne.TextAlignLeading
+
+	priceTxt := canvas.NewText(fmt.Sprintf("%.2f €", precio), cartaPriceDark)
+	priceTxt.TextSize = 12
+	priceTxt.TextStyle = fyne.TextStyle{Bold: true}
+	priceTxt.Alignment = fyne.TextAlignTrailing
+
+	footer := container.NewBorder(nil, nil, nil, priceTxt, nameTxt)
+
+	body := container.NewBorder(
+		nil,
+		footer,
+		nil, nil,
+		container.NewCenter(iconObj),
+	)
+
+	bg := canvas.NewRectangle(cartaBtnBg)
+	bg.CornerRadius = 8
+
+	btn := newButton("", func() {
+		s.addItemToTotal(item.Nombre, precio)
+	})
+	btn.Importance = widget.LowImportance
+
+	// Fondo blanco + contenido con padding de tema (aspecto botón)
+	card := container.NewStack(bg, container.NewPadded(body))
+	return container.NewStack(btn, card)
+}
+
+func (s *PagoScreen) buildCartaIcon(item ItemPrecio) fyne.CanvasObject {
+	iconData := listasGetIcono(item.ID)
+	if len(iconData) > 0 {
+		img := canvas.NewImageFromReader(bytes.NewReader(iconData), fmt.Sprintf("item_%d", item.ID))
+		img.SetMinSize(fyne.NewSize(cartaIconSize, cartaIconSize))
+		img.FillMode = canvas.ImageFillContain
+		return img
+	}
+
+	ph := canvas.NewRectangle(cartaPlacehold)
+	ph.SetMinSize(fyne.NewSize(cartaIconSize, cartaIconSize))
+	ph.CornerRadius = 4
+	letter := "·"
+	if runes := []rune(strings.TrimSpace(item.Nombre)); len(runes) > 0 {
+		letter = strings.ToUpper(string(runes[0]))
+	}
+	lbl := canvas.NewText(letter, colorGray)
+	lbl.TextSize = 32
+	lbl.Alignment = fyne.TextAlignCenter
+	lbl.TextStyle = fyne.TextStyle{Bold: true}
+	return container.NewStack(ph, container.NewCenter(lbl))
 }
 
 // addItemToTotal adds an item price to the calculator total (equivalent to typing + price).
